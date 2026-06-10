@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NPI Builder • Workflow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    :root {
+      --bg: #0b1428;
+      --bg-soft: #111c36;
+      --panel: #16233f;
+      --panel-strong: #1c2a4a;
+      --border: rgba(148, 163, 184, 0.22);
+      --text: #e0e7ff;
+      --muted: #64748b;
+      --accent: #22d3ee;
+      --accent-2: #a855f7;
+    }
+
+    body {
+      background: linear-gradient(180deg, #0b1428 0%, #0f172a 55%, #111c36 100%);
+      color: #e0e7ff;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .glass {
+      background: rgba(22, 35, 63, 0.85);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+    }
+
+    .node {
+      transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+      position: relative;
+    }
+
+    .node:hover {
+      transform: translateY(-4px) scale(1.01);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5),
+                  0 0 0 1px rgba(34, 211, 238, 0.15);
+    }
+
+    .node.active {
+      box-shadow: 0 0 0 1px #22d3ee,
+                  0 20px 45px -12px rgba(34, 211, 238, 0.25);
+      border-color: #22d3ee;
+    }
+
+    .flow-line {
+      background: linear-gradient(90deg, #22d3ee, #a855f7, #22d3ee);
+      background-size: 200% 100%;
+      animation: flow 4s linear infinite;
+    }
+
+    @keyframes flow {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .stage-number {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum";
+    }
+
+    .section-pill {
+      background: rgba(34, 211, 238, 0.1);
+      border: 1px solid rgba(34, 211, 238, 0.2);
+      color: #67e8f9;
+    }
+
+    .propagate-glow {
+      box-shadow: 0 0 30px -8px rgb(168 85 247 / 0.4);
+    }
+
+    .modal {
+      animation: modalEnter 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    @keyframes modalEnter {
+      from { opacity: 0; transform: translateY(12px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .npi-gradient-text {
+      background: linear-gradient(90deg, #22d3ee, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .workflow-node {
+      background: #16233f;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    .workflow-node:hover {
+      border-color: rgba(34, 211, 238, 0.4);
+    }
+
+    .detail-row {
+      border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+    }
+
+    .feature-pill {
+      background: #1c2a4a;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      transition: all 0.15s ease;
+    }
+
+    .feature-pill:hover {
+      border-color: #22d3ee;
+      background: #243a5c;
+      transform: translateY(-1px);
+    }
+
+    .subtle-grid {
+      background-image: 
+        linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+  </style>
+</head>
+<body class="min-h-screen pb-24">
+  <!-- Hero -->
+  <div class="max-w-7xl mx-auto px-6 pt-12 pb-8">
+    <div class="flex items-center gap-4 mb-3">
+      <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#22d3ee] to-[#a855f7] flex items-center justify-center shadow-lg">
+        <i class="fa-solid fa-rocket text-[#0b1428] text-2xl"></i>
+      </div>
+      <div>
+        <div class="text-4xl font-semibold tracking-tighter">NPI Builder</div>
+        <div class="text-[#64748b] text-lg -mt-1">AI-Assisted</div>
+      </div>
+    </div>
+    
+    <h1 class="text-6xl font-semibold tracking-tighter leading-none mt-2 mb-3">
+      One guided workflow.<br>
+      <span class="npi-gradient-text">Nine powerful artifacts.</span>
+    </h1>
+    
+    <p class="max-w-2xl text-xl text-[#94a3b8]">
+      From first concept to post-launch learning — a linear, context-rich, AI-accelerated path 
+      that keeps every document traceable and high-signal.
+    </p>
+
+    <div class="flex items-center gap-3 mt-6">
+      <div class="inline-flex items-center gap-2 px-4 h-9 rounded-3xl bg-[#16233f] border border-white/10 text-sm">
+        <div class="w-2 h-2 rounded-full bg-[#22d3ee] animate-pulse"></div>
+        <span class="text-[#94a3b8]">Linear • Traceable • AI-Native</span>
+      </div>
+      <div onclick="document.getElementById('flow-section').scrollIntoView({ behavior: 'smooth' })" 
+           class="cursor-pointer inline-flex items-center gap-2 px-5 h-9 rounded-3xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm transition-colors">
+        See the flow <i class="fa-solid fa-arrow-down ml-1 text-xs"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- The Main Workflow -->
+  <div id="flow-section" class="max-w-7xl mx-auto px-6">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="uppercase tracking-[3px] text-xs font-semibold text-[#64748b]">THE NPI BUILDER WORKFLOW</div>
+        <div class="text-2xl font-semibold tracking-tight">Guided document progression</div>
+      </div>
+      <div class="hidden md:flex items-center gap-2 text-xs text-[#64748b]">
+        <div class="px-3 py-1 rounded-2xl bg-[#16233f] border border-white/10">9 stages</div>
+        <div class="px-3 py-1 rounded-2xl bg-[#16233f] border border-white/10">Strong propagation</div>
+        <div class="px-3 py-1 rounded-2xl bg-[#16233f] border border-white/10">Full audit trail</div>
+      </div>
+    </div>
+
+    <!-- Flow Container -->
+    <div class="relative">
+      <!-- Propagation Backbone -->
+      <div class="hidden lg:block absolute top-[82px] left-[52px] right-[52px] h-[3px] rounded-full overflow-hidden z-0">
+        <div class="flow-line h-full w-full opacity-70"></div>
+      </div>
+      <div class="hidden lg:block absolute top-[79px] left-[52px] right-[52px] h-px bg-gradient-to-r from-transparent via-white/30 to-transparent z-0"></div>
+
+      <!-- Stages Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9 gap-3 relative z-10">
+        <!-- Stage 1: PCD -->
+        <div onclick="showStageDetail(0)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#22d3ee]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-[#22d3ee] to-[#67e8f9] flex items-center justify-center text-[#0b1428] font-bold text-sm shadow-inner">1</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">PCD</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Product Concept</div>
+            <div class="text-[#64748b] text-sm">Problem &amp; opportunity</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Problem</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Users</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Concept</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">Product Manager • Early discovery</div>
+        </div>
+
+        <!-- Stage 2: PRD -->
+        <div onclick="showStageDetail(1)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#22d3ee]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-[#22d3ee] to-[#67e8f9] flex items-center justify-center text-[#0b1428] font-bold text-sm shadow-inner">2</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">PRD</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Product Requirements</div>
+            <div class="text-[#64748b] text-sm">What must be true</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Objectives</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Stories</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Acceptance</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">Product Manager • After concept sign-off</div>
+        </div>
+
+        <!-- Stage 3: PDD -->
+        <div onclick="showStageDetail(2)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#22d3ee]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-[#22d3ee] to-[#67e8f9] flex items-center justify-center text-[#0b1428] font-bold text-sm shadow-inner">3</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">PDD</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Product Design</div>
+            <div class="text-[#64748b] text-sm">Experience &amp; validation</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Journeys</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Wireframes</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Accessibility</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">UX Designer • Requirements → experience</div>
+        </div>
+
+        <!-- Stage 4: SDD -->
+        <div onclick="showStageDetail(3)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#22d3ee]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-[#a855f7] to-[#c084fc] flex items-center justify-center text-white font-bold text-sm shadow-inner">4</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">SDD</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Software Design</div>
+            <div class="text-[#64748b] text-sm">Technical solution</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Architecture</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Components</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Interfaces</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">Engineering Lead • Requirements + Design</div>
+        </div>
+
+        <!-- Stage 5: HLD -->
+        <div onclick="showStageDetail(4)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#22d3ee]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-[#a855f7] to-[#c084fc] flex items-center justify-center text-white font-bold text-sm shadow-inner">5</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">HLD</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">High-Level Design</div>
+            <div class="text-[#64748b] text-sm">System view</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Boundaries</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Flows</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Security</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">Architect • Before deep implementation</div>
+        </div>
+
+        <!-- Stage 6: LLD -->
+        <div onclick="showStageDetail(5)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#22d3ee]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-[#a855f7] to-[#c084fc] flex items-center justify-center text-white font-bold text-sm shadow-inner">6</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">LLD</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Low-Level Design</div>
+            <div class="text-[#64748b] text-sm">Implementation detail</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Module</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Behavior</div>
+            <div class="section-pill text-[10px] px-2 py-px rounded-xl font-medium">Schema</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">Developer • Ready to code</div>
+        </div>
+
+        <!-- Stage 7: Risk Register -->
+        <div onclick="showStageDetail(6)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#f59e0b]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-400 flex items-center justify-center text-[#0b1428] font-bold text-sm shadow-inner">7</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">RISK</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Risk Register</div>
+            <div class="text-[#64748b] text-sm">Live risk management</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-amber-400/10 text-amber-300 border border-amber-400/20">Impact</div>
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-amber-400/10 text-amber-300 border border-amber-400/20">Mitigation</div>
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-amber-400/10 text-amber-300 border border-amber-400/20">Owner</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">PM + Eng Lead • Continuous</div>
+        </div>
+
+        <!-- Stage 8: Launch Checklist -->
+        <div onclick="showStageDetail(7)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#22d3ee]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-400 flex items-center justify-center text-[#0b1428] font-bold text-sm shadow-inner">8</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">LAUNCH</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Launch Checklist</div>
+            <div class="text-[#64748b] text-sm">Go-live readiness</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-emerald-400/10 text-emerald-300 border border-emerald-400/20">Deployment</div>
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-emerald-400/10 text-emerald-300 border border-emerald-400/20">Comms</div>
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-emerald-400/10 text-emerald-300 border border-emerald-400/20">Rollback</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">Ops + PM • Pre go-live</div>
+        </div>
+
+        <!-- Stage 9: Post-Launch Review -->
+        <div onclick="showStageDetail(8)" class="workflow-node node group rounded-3xl p-4 cursor-pointer border border-white/10 hover:border-[#a855f7]/40">
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-violet-400 to-fuchsia-400 flex items-center justify-center text-white font-bold text-sm shadow-inner">9</div>
+            <div class="text-right">
+              <div class="text-[10px] font-mono tracking-widest text-[#64748b]">REVIEW</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="font-semibold text-lg leading-tight">Post-Launch Review</div>
+            <div class="text-[#64748b] text-sm">Close the loop</div>
+          </div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-violet-400/10 text-violet-300 border border-violet-400/20">Results</div>
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-violet-400/10 text-violet-300 border border-violet-400/20">Learnings</div>
+            <div class="text-[10px] px-2 py-px rounded-xl font-medium bg-violet-400/10 text-violet-300 border border-violet-400/20">Actions</div>
+          </div>
+          <div class="mt-3 text-[11px] text-[#64748b]">Product Manager • After stabilization</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Propagation Callout -->
+    <div class="mt-6 lg:mt-7 glass rounded-3xl p-5 border border-white/10">
+      <div class="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
+        <div class="flex items-center gap-3">
+          <div class="shrink-0 w-9 h-9 rounded-2xl bg-gradient-to-br from-[#22d3ee] via-[#a855f7] to-[#22d3ee] flex items-center justify-center">
+            <i class="fa-solid fa-link text-[#0b1428]"></i>
+          </div>
+          <div>
+            <div class="font-semibold text-lg tracking-tight">Strong Propagation Engine</div>
+            <div class="text-sm text-[#94a3b8]">Every downstream document is drafted with rich, structured context from all upstream artifacts.</div>
+          </div>
+        </div>
+        
+        <div class="lg:ml-auto flex items-center gap-2 text-sm">
+          <div class="px-3 py-1.5 rounded-2xl bg-[#0b1428] border border-white/10 text-[#94a3b8] flex items-center gap-2">
+            <span class="font-medium text-[#67e8f9]">PCD → PRD → PDD</span>
+          </div>
+          <div class="hidden sm:block text-[#64748b]">→</div>
+          <div class="px-3 py-1.5 rounded-2xl bg-[#0b1428] border border-white/10 text-[#94a3b8]">
+            Technical docs inherit intent
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Capabilities -->
+  <div class="max-w-7xl mx-auto px-6 mt-12">
+    <div class="uppercase text-xs tracking-[3px] font-semibold text-[#64748b] mb-3">WHAT MAKES THE WORKFLOW SLICK</div>
+    
+    <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="feature-pill rounded-3xl p-5">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-robot text-[#22d3ee] text-xl"></i>
+          <div class="font-semibold">ProdBot — Persistent Co-Pilot</div>
+        </div>
+        <div class="mt-2 text-sm text-[#94a3b8]">Always-available AI assistant. Ask anything, request propagation, run audits, or get “what next?” guidance.</div>
+      </div>
+
+      <div class="feature-pill rounded-3xl p-5">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-forward text-[#a855f7] text-xl"></i>
+          <div class="font-semibold">One-Click Propagation</div>
+        </div>
+        <div class="mt-2 text-sm text-[#94a3b8]">“Propagate to next” pulls rich summaries from every prior document and intelligently seeds the target with high-quality first drafts.</div>
+      </div>
+
+      <div class="feature-pill rounded-3xl p-5">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-magic text-emerald-400 text-xl"></i>
+          <div class="font-semibold">Bulk AI + Consistency</div>
+        </div>
+        <div class="mt-2 text-sm text-[#94a3b8]">Fill entire documents, regenerate, or run a full cross-artifact consistency review that catches gaps and contradictions.</div>
+      </div>
+
+      <div class="feature-pill rounded-3xl p-5">
+        <div class="flex items-center gap-3">
+          <i class="fa-solid fa-expand text-amber-400 text-xl"></i>
+          <div class="font-semibold">Wizard Mode + Shortcuts</div>
+        </div>
+        <div class="mt-2 text-sm text-[#94a3b8]">⌘K for distraction-free full-screen flow. ⌘→ / ⌘← navigation. ⌘S checkpoints. / focuses the co-pilot instantly.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div class="max-w-7xl mx-auto px-6 mt-10">
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-y-3 text-xs text-[#64748b]">
+      <div>Built for speed and traceability. All data lives locally until you export.</div>
+      <div class="flex items-center gap-4">
+        <div>Exports: <span class="font-medium text-[#94a3b8]">Minimalist PDF • DOCX • ZIP • Folder</span></div>
+        <div onclick="window.location.reload()" class="cursor-pointer underline decoration-white/20 hover:decoration-[#22d3ee]">Reload diagram</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div id="modal" onclick="hideModal()" class="hidden fixed inset-0 z-[200] bg-black/70 flex items-center justify-center p-4">
+    <div onclick="event.stopImmediatePropagation()" class="modal glass w-full max-w-2xl rounded-3xl overflow-hidden border border-white/10 shadow-2xl">
+      <!-- Modal Header -->
+      <div class="px-6 pt-6 pb-4 flex items-start justify-between border-b border-white/10">
+        <div>
+          <div id="modal-shortname" class="font-mono text-xs tracking-[2px] text-[#67e8f9]"></div>
+          <div id="modal-name" class="text-3xl font-semibold tracking-tighter"></div>
+        </div>
+        <button onclick="hideModal()" class="text-2xl leading-none text-[#64748b] hover:text-white px-2 -mr-1">×</button>
+      </div>
+
+      <div class="p-6">
+        <div id="modal-definition" class="text-[#cbd5e1]"></div>
+
+        <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-[#64748b] mb-1">Purpose</div>
+            <div id="modal-purpose" class="text-sm"></div>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-widest text-[#64748b] mb-1">Owner</div>
+            <div id="modal-owner" class="text-sm"></div>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-widest text-[#64748b] mb-1">Timing</div>
+            <div id="modal-timing" class="text-sm"></div>
+          </div>
+        </div>
+
+        <!-- Template Sections -->
+        <div class="mt-6">
+          <div class="flex items-center justify-between mb-2">
+            <div class="uppercase text-xs tracking-[2px] font-semibold text-[#64748b]">Key Sections</div>
+          </div>
+          <div id="modal-sections" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"></div>
+        </div>
+
+        <!-- Best practices + pitfalls -->
+        <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="rounded-2xl bg-[#0f1a33] border border-white/10 p-4">
+            <div class="flex items-center gap-2 text-emerald-400 text-xs font-semibold tracking-wider mb-2">
+              <i class="fa-solid fa-check"></i> 
+              <span>BEST PRACTICES</span>
+            </div>
+            <ul id="modal-best" class="text-sm space-y-1 text-[#94a3b8]"></ul>
+          </div>
+          <div class="rounded-2xl bg-[#0f1a33] border border-white/10 p-4">
+            <div class="flex items-center gap-2 text-rose-400 text-xs font-semibold tracking-wider mb-2">
+              <i class="fa-solid fa-exclamation-triangle"></i> 
+              <span>COMMON MISTAKES</span>
+            </div>
+            <ul id="modal-mistakes" class="text-sm space-y-1 text-[#94a3b8]"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4 border-t border-white/10 bg-black/20 flex items-center justify-between text-xs">
+        <div class="text-[#64748b]">Click any stage in the flow to explore</div>
+        <div onclick="hideModal()" class="cursor-pointer px-4 py-1.5 rounded-2xl hover:bg-white/5 active:bg-white/10 transition-colors">Close</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tailwind script config
+    function initTailwind() {
+      // Already using CDN, but we can extend if needed
+    }
+
+    // Artifact data (sourced directly from NPI Builder)
+    const artifacts = [
+      {
+        id: 'pcd',
+        shortName: 'PCD',
+        name: 'Product Concept Document',
+        definition: 'The early concept record that captures the problem, opportunity, target users, value proposition, assumptions, and risks.',
+        purpose: 'Align stakeholders before detailed requirements are written and keep the team problem-focused.',
+        timing: 'After initial discovery, before formal requirements approval.',
+        owner: 'Product Manager',
+        sections: ['Problem', 'Users', 'Value', 'Concept', 'Risks'],
+        bestPractices: [
+          'Keep it concise but evidence-based',
+          'Use one clear problem statement',
+          'Tie every idea to an outcome',
+          'Explicitly call out what is out of scope'
+        ],
+        mistakes: [
+          'Writing a feature list instead of a concept',
+          'Skipping assumptions and risks',
+          'No link to business goals'
+        ]
+      },
+      {
+        id: 'prd',
+        shortName: 'PRD',
+        name: 'Product Requirements Document',
+        definition: 'Translates the approved concept into functional and non-functional requirements, user stories, acceptance criteria, dependencies, and success metrics.',
+        purpose: 'Create a testable agreement on what the product must do and how success is measured.',
+        timing: 'After the concept and business case are approved.',
+        owner: 'Product Manager / Product Owner',
+        sections: ['Objective', 'Scope', 'Requirements', 'Stories', 'Acceptance'],
+        bestPractices: [
+          'Keep requirements atomic and testable',
+          'Trace every requirement to a business goal',
+          'Document edge cases and priorities',
+          'Clear “in scope / out of scope”'
+        ],
+        mistakes: [
+          'Mixing solution detail with requirements',
+          'Missing acceptance criteria',
+          'No dependency or compliance notes'
+        ]
+      },
+      {
+        id: 'pdd',
+        shortName: 'PDD',
+        name: 'Product Design Document',
+        definition: 'Describes the user experience, workflows, wireframes, interaction patterns, accessibility decisions, and validation findings.',
+        purpose: 'Show how the approved requirements become an intuitive, usable product experience.',
+        timing: 'After the PRD, refined through design reviews and user validation.',
+        owner: 'UX Designer',
+        sections: ['Goal', 'Flow', 'Wireframes', 'Accessibility', 'Validation'],
+        bestPractices: [
+          'Validate flows with real users',
+          'Design for empty, error, and loading states',
+          'Document decisions and rationale',
+          'Maintain parity with requirements'
+        ],
+        mistakes: [
+          'Designing screens without user journeys',
+          'Ignoring accessibility',
+          'Treating wireframes as final implementation'
+        ]
+      },
+      {
+        id: 'sdd',
+        shortName: 'SDD',
+        name: 'Software Design Document',
+        definition: 'Describes the software solution approach, system components, interfaces, data flow, security, observability, and technical constraints.',
+        purpose: 'Bridge product intent and engineering implementation with enough detail to build safely and consistently.',
+        timing: 'Once requirements and design are stable enough to translate into implementation plans.',
+        owner: 'Engineering Lead or Architect',
+        sections: ['Architecture', 'Components', 'Interfaces', 'Data', 'Operations'],
+        bestPractices: [
+          'Describe major decisions and trade-offs',
+          'Show how services communicate',
+          'Include non-functional requirements',
+          'State assumptions clearly'
+        ],
+        mistakes: [
+          'Being too vague to implement',
+          'Mixing architecture with copy decisions',
+          'Missing operations or security detail'
+        ]
+      },
+      {
+        id: 'hld',
+        shortName: 'HLD',
+        name: 'High-Level Design',
+        definition: 'The solution-level architecture view describing system boundaries, major components, data flows, integrations, deployment approach, and security model.',
+        purpose: 'Give stakeholders a clear picture of the end-to-end technical approach before implementation starts.',
+        timing: 'Before or alongside detailed software design and implementation breakdown.',
+        owner: 'Architect',
+        sections: ['Overview', 'Boundaries', 'Flows', 'Security', 'Runtime'],
+        bestPractices: [
+          'Use one architecture story for the whole solution',
+          'Call out trust boundaries',
+          'Show deployment and runtime concerns',
+          'Keep it comprehensible for non-engineers'
+        ],
+        mistakes: [
+          'Only drawing boxes without explaining flows',
+          'Ignoring integration or infrastructure realities',
+          'No security view'
+        ]
+      },
+      {
+        id: 'lld',
+        shortName: 'LLD',
+        name: 'Low-Level Design',
+        definition: 'Implementation detail that explains classes, services, methods, database schema, validation rules, sequence flows, errors, and configuration.',
+        purpose: 'Remove ambiguity for engineers building the solution and for reviewers validating behavior.',
+        timing: 'When the team is ready to implement specific components or stories.',
+        owner: 'Developer or Engineering Lead',
+        sections: ['Module', 'Behavior', 'Schema', 'Rules', 'Tests'],
+        bestPractices: [
+          'Keep the design concrete enough for implementation',
+          'Specify rules and constraints',
+          'Document error handling and retries',
+          'Align to the test strategy'
+        ],
+        mistakes: [
+          'Too high-level to code from',
+          'Duplicating the HLD without implementation detail',
+          'Ignoring edge cases and validation'
+        ]
+      },
+      {
+        id: 'risk-register',
+        shortName: 'Risk',
+        name: 'Risk Register',
+        definition: 'A live list of risks, assumptions, issues, and dependencies that may affect scope, quality, schedule, cost, or adoption.',
+        purpose: 'Keep the team explicit about what could go wrong and what action is needed.',
+        timing: 'Created early and updated throughout the entire lifecycle.',
+        owner: 'Product Manager and Engineering Lead',
+        sections: ['Risk', 'Impact', 'Likelihood', 'Mitigation', 'Owner', 'Status'],
+        bestPractices: [
+          'Review at each gate',
+          'Tie risks to concrete decisions',
+          'Escalate when mitigation is blocked',
+          'Distinguish risks from issues'
+        ],
+        mistakes: [
+          'Treating risk as a one-time list',
+          'No owner or mitigation plan',
+          'Hiding operational risks'
+        ]
+      },
+      {
+        id: 'launch-checklist',
+        shortName: 'Launch',
+        name: 'Launch Checklist',
+        definition: 'A readiness checklist covering deployment, communications, training, support, rollback, monitoring, and approvals.',
+        purpose: 'Prevent avoidable launch failures by making readiness visible and executable.',
+        timing: 'Created in launch planning and completed before go-live.',
+        owner: 'Operations / Support + Product Manager',
+        sections: ['Item', 'Evidence', 'Owner', 'Status', 'Notes'],
+        bestPractices: [
+          'Use clear yes/no evidence for every item',
+          'Assign an owner for each item',
+          'Rehearse escalation paths',
+          'Treat launch as an operational event'
+        ],
+        mistakes: [
+          'Checklist exists but is never used',
+          'No rollback path defined',
+          'Support training is skipped'
+        ]
+      },
+      {
+        id: 'post-launch-review',
+        shortName: 'Review',
+        name: 'Post-Launch Review',
+        definition: 'A structured retrospective on launch outcomes, metrics, defects, feedback, and next-step improvements.',
+        purpose: 'Close the loop between launch and the next roadmap cycle.',
+        timing: 'Performed after initial launch and again after hypercare stabilizes.',
+        owner: 'Product Manager',
+        sections: ['Goal', 'Result', 'Learning', 'Actions', 'Owners'],
+        bestPractices: [
+          'Compare outcomes to the original business goal',
+          'Capture learning, not blame',
+          'Update the roadmap and operating model',
+          'Use feedback to improve future NPI cycles'
+        ],
+        mistakes: [
+          'Only reviewing incidents',
+          'No action backlog created',
+          'No linkage back to success metrics'
+        ]
+      }
+    ]
+
+    function showStageDetail(index) {
+      const art = artifacts[index]
+      const modal = document.getElementById('modal')
+
+      document.getElementById('modal-shortname').textContent = art.shortName
+      document.getElementById('modal-name').textContent = art.name
+      document.getElementById('modal-definition').textContent = art.definition
+      document.getElementById('modal-purpose').textContent = art.purpose
+      document.getElementById('modal-owner').textContent = art.owner
+      document.getElementById('modal-timing').textContent = art.timing
+
+      // Sections
+      const sectionsEl = document.getElementById('modal-sections')
+      sectionsEl.innerHTML = ''
+      art.sections.forEach(sec => {
+        const pill = document.createElement('div')
+        pill.className = 'px-3 py-2 rounded-2xl bg-[#0f1a33] border border-white/10 text-sm flex items-center'
+        pill.innerHTML = `<span class="text-[#67e8f9] mr-2">•</span> ${sec}`
+        sectionsEl.appendChild(pill)
+      })
+
+      // Best practices
+      const bestEl = document.getElementById('modal-best')
+      bestEl.innerHTML = ''
+      art.bestPractices.forEach(bp => {
+        const li = document.createElement('li')
+        li.innerHTML = `<i class="fa-solid fa-check text-emerald-400 mr-1.5 text-xs"></i>${bp}`
+        bestEl.appendChild(li)
+      })
+
+      // Mistakes
+      const mistakesEl = document.getElementById('modal-mistakes')
+      mistakesEl.innerHTML = ''
+      art.mistakes.forEach(m => {
+        const li = document.createElement('li')
+        li.innerHTML = `<i class="fa-solid fa-times text-rose-400 mr-1.5 text-xs"></i>${m}`
+        mistakesEl.appendChild(li)
+      })
+
+      modal.classList.remove('hidden')
+      modal.classList.add('flex')
+    }
+
+    function hideModal() {
+      const modal = document.getElementById('modal')
+      modal.classList.remove('flex')
+      modal.classList.add('hidden')
+    }
+
+    // Keyboard support
+    function setupKeyboard() {
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const modal = document.getElementById('modal')
+          if (!modal.classList.contains('hidden')) {
+            hideModal()
+          }
+        }
+        
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+          // Easter egg: highlight the propagation backbone
+          e.preventDefault()
+          const backbone = document.querySelector('.flow-line')
+          if (backbone) {
+            backbone.style.animation = 'none'
+            backbone.offsetHeight // reflow
+            backbone.style.animation = 'flow 1.2s linear 3'
+          }
+        }
+      })
+
+      // Click anywhere on backdrop to close (already handled by onclick)
+    }
+
+    // Subtle animation for the flow line on load
+    function enhanceFlowLine() {
+      setTimeout(() => {
+        const line = document.querySelector('.flow-line')
+        if (line) {
+          line.style.opacity = '0.75'
+        }
+      }, 800)
+    }
+
+    // Boot
+    function boot() {
+      initTailwind()
+      setupKeyboard()
+      enhanceFlowLine()
+
+      // Optional: pre-open first stage on ?demo=1 or something
+      // console.log('%c[NPI Workflow] Slick diagram ready', 'color:#64748b')
+    }
+
+    window.onload = boot
+  </script>
+</body>
+</html>

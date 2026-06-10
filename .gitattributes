@@ -1,0 +1,17 @@
+# Auto detect text files and normalize to LF on commit
+* text=auto
+
+# Explicitly handle Windows scripts as CRLF
+*.{cmd,bat,ps1} text eol=crlf
+
+# Binary files
+*.{png,jpg,jpeg,gif,ico,svg,webp,woff,woff2,ttf,eot} binary
+
+# Documents
+*.{pdf,doc,docx,xls,xlsx,ppt,pptx,zip} binary
+
+# Ensure shell and config files are LF (good for cross-platform)
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Makefile text eol=lf
