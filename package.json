@@ -17,16 +17,20 @@
   "build": {
     "appId": "com.productdeveloper.npi-document-builder",
     "productName": "NPI Builder",
-    "icon": "build/icon.jpg",
+    "icon": "public/npi-builder-logo.ico",
     "files": [
       "dist/**/*",
       "electron/**/*",
       "package.json"
     ],
-    "extraFiles": [
+    "extraResources": [
       {
         "from": "public/npi-builder-logo.jpg",
-        "to": "."
+        "to": "npi-builder-logo.jpg"
+      },
+      {
+        "from": "public/npi-builder-logo.ico",
+        "to": "icon.ico"
       }
     ],
     "directories": {
@@ -34,7 +38,7 @@
     },
 
     "win": {
-      "icon": "build/icon.jpg",
+      "icon": "public/npi-builder-logo.ico",
       "target": [
         {
           "target": "portable",

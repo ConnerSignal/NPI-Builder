@@ -17,12 +17,11 @@ function createWindow() {
     show: false,
   });
 
-  // Set the custom NPI Builder logo as window icon.
-  // For best Windows taskbar/exe icon UX, a .ico with multiple sizes is ideal,
-  // but the jpg works for the runtime window icon.
-  const iconPath = isDev 
-    ? path.join(__dirname, '../public/npi-builder-logo.jpg')
-    : path.join(app.getAppPath(), 'npi-builder-logo.jpg');
+  // Use the same NPI Builder artwork for the dev window, packaged window,
+  // taskbar, executable, and desktop shortcut icon.
+  const iconPath = isDev
+    ? path.join(__dirname, '../public/npi-builder-logo.ico')
+    : path.join(process.resourcesPath, 'icon.ico');
   try { win.setIcon(iconPath); } catch (e) { console.warn('Could not set window icon:', e); }
 
   if (isDev) {
