@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { artifacts, getArtifact } from './data/artifacts';
 import { SMART_OPS_EXAMPLES } from './data/smartOpsExamples';
-import { generateSection, loadAIConfig, saveAIConfig, type AIConfig } from './lib/ai';
+import {
+  AI_PROVIDER_PRESETS,
+  applyFallbackPreset,
+  applyPrimaryPreset,
+  generateSection,
+  getProviderPreset,
+  loadAIConfig,
+  saveAIConfig,
+  type AIConfig,
+} from './lib/ai';
 import type { Project, ProjectVersion } from './lib/export';
 import { exportMinimalistPdf, exportMinimalistDocx, exportProjectZip } from './lib/export';
 import { Download, FolderOpen, History, RefreshCw, Save, Settings, Zap } from 'lucide-react';
@@ -134,6 +143,9 @@ function App() {
     { role: 'bot', text: "Hi, I'm ProdBot — your NPI co-pilot. Ask me anything about your documents, propagation, or next steps." }
   ]);
   const [prodBotInput, setProdBotInput] = useState('');
+
+  const primaryPreset = useMemo(() => getProviderPreset(aiConfig.providerPresetId), [aiConfig.providerPresetId]);
+  const fallbackPreset = useMemo(() => getProviderPreset(aiConfig.fallbackPresetId), [aiConfig.fallbackPresetId]);
 
   // Super robust auto-save: immediate + debounced safety net
   const saveToStorage = (proj: Project) => {
@@ -1381,8 +1393,21 @@ function App() {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>AI Provider Settings</h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-              Uses any OpenAI-compatible /chat/completions endpoint. Works great with xAI (Grok), OpenAI, Anthropic via proxy, or local models (Ollama with OpenAI compat).
+              Choose a preset to avoid repeatedly pasting endpoints and model names. You can still customize anything manually.
             </p>
+
+            <div style={{ marginTop: 12 }}>
+              <label>Primary Provider Preset</label>
+              <select
+                className="input"
+                value={aiConfig.providerPresetId || 'xai'}
+                onChange={e => saveAIConfigLocal(applyPrimaryPreset(aiConfig, e.target.value))}
+              >
+                {AI_PROVIDER_PRESETS.map(p => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            </div>
 
             <div style={{ marginTop: 12 }}>
               <label>Base URL</label>
@@ -1390,16 +1415,28 @@ function App() {
                 className="input"
                 value={aiConfig.baseUrl}
                 onChange={e => saveAIConfigLocal({ baseUrl: e.target.value })}
-                placeholder="https://api.x.ai/v1"
+                placeholder={primaryPreset.baseUrl || 'https://api.openai.com/v1'}
               />
             </div>
             <div style={{ marginTop: 10 }}>
               <label>Model</label>
+              <select
+                className="input"
+                value={aiConfig.model}
+                onChange={e => saveAIConfigLocal({ model: e.target.value })}
+              >
+                {(primaryPreset.models.length ? primaryPreset.models : ['']).map(m => (
+                  <option key={m || 'custom'} value={m}>{m || 'Custom model'}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <label>Model (manual override)</label>
               <input
                 className="input"
                 value={aiConfig.model}
                 onChange={e => saveAIConfigLocal({ model: e.target.value })}
-                placeholder="grok-3-latest or gpt-4o-mini"
+                placeholder="gpt-4.1-mini / gpt-5.5 / grok-3-latest"
               />
             </div>
             <div style={{ marginTop: 10 }}>
@@ -1409,8 +1446,76 @@ function App() {
                 type="password"
                 value={aiConfig.apiKey}
                 onChange={e => saveAIConfigLocal({ apiKey: e.target.value })}
-                placeholder="sk-... or xai-..."
+                placeholder={primaryPreset.apiKeyPlaceholder}
               />
+            </div>
+
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={!!aiConfig.fallbackEnabled}
+                  onChange={e => saveAIConfigLocal({ fallbackEnabled: e.target.checked })}
+                />
+                Enable auto-fallback when primary returns quota/rate-limit/server errors
+              </label>
+
+              {aiConfig.fallbackEnabled && (
+                <>
+                  <div style={{ marginTop: 10 }}>
+                    <label>Fallback Provider Preset</label>
+                    <select
+                      className="input"
+                      value={aiConfig.fallbackPresetId || 'copilot'}
+                      onChange={e => saveAIConfigLocal(applyFallbackPreset(aiConfig, e.target.value))}
+                    >
+                      {AI_PROVIDER_PRESETS.map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <label>Fallback Base URL</label>
+                    <input
+                      className="input"
+                      value={aiConfig.fallbackBaseUrl || ''}
+                      onChange={e => saveAIConfigLocal({ fallbackBaseUrl: e.target.value })}
+                      placeholder={fallbackPreset.baseUrl || 'https://api.githubcopilot.com'}
+                    />
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <label>Fallback Model</label>
+                    <select
+                      className="input"
+                      value={aiConfig.fallbackModel || ''}
+                      onChange={e => saveAIConfigLocal({ fallbackModel: e.target.value })}
+                    >
+                      {(fallbackPreset.models.length ? fallbackPreset.models : ['']).map(m => (
+                        <option key={m || 'custom'} value={m}>{m || 'Custom model'}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <label>Fallback Model (manual override)</label>
+                    <input
+                      className="input"
+                      value={aiConfig.fallbackModel || ''}
+                      onChange={e => saveAIConfigLocal({ fallbackModel: e.target.value })}
+                      placeholder="gpt-5.5"
+                    />
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <label>Fallback API Key (optional, leave blank to reuse primary key)</label>
+                    <input
+                      className="input"
+                      type="password"
+                      value={aiConfig.fallbackApiKey || ''}
+                      onChange={e => saveAIConfigLocal({ fallbackApiKey: e.target.value })}
+                      placeholder={fallbackPreset.apiKeyPlaceholder}
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
@@ -1419,10 +1524,7 @@ function App() {
             </div>
 
             <div style={{ fontSize: '0.75rem', marginTop: 12, color: 'var(--muted)' }}>
-              Recommended starters:<br />
-              • xAI Grok: base https://api.x.ai/v1 , model grok-3-latest<br />
-              • OpenAI: https://api.openai.com/v1 , model gpt-4o or gpt-4o-mini<br />
-              • Local Ollama: http://localhost:11434/v1 (after `ollama serve` + pull model)
+              Tip: For your quota issue, set Primary preset to OpenAI and enable fallback with Copilot preset.
             </div>
           </div>
         </div>
