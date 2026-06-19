@@ -246,10 +246,15 @@ export function getDefaultAIConfig(): AIConfig {
   };
 }
 
+function stripStoredSecrets(config: Partial<AIConfig>): Partial<AIConfig> {
+  const { apiKey: _apiKey, fallbackApiKey: _fallbackApiKey, ...rest } = config;
+  return rest;
+}
+
 export function loadAIConfig(): AIConfig {
   try {
     const raw = localStorage.getItem('npi-ai-config');
-    if (raw) return { ...getDefaultAIConfig(), ...JSON.parse(raw) };
+    if (raw) return { ...getDefaultAIConfig(), ...stripStoredSecrets(JSON.parse(raw)) };
   } catch {}
   return getDefaultAIConfig();
 }
@@ -257,6 +262,6 @@ export function loadAIConfig(): AIConfig {
 export function saveAIConfig(cfg: Partial<AIConfig>) {
   const current = loadAIConfig();
   const next = { ...current, ...cfg };
-  localStorage.setItem('npi-ai-config', JSON.stringify(next));
+  localStorage.setItem('npi-ai-config', JSON.stringify(stripStoredSecrets(next)));
   return next;
 }

@@ -41,7 +41,15 @@ Open http://localhost:5173
   - Local (Ollama): `http://localhost:11434/v1` after `ollama run llama3.1` etc.
 - Exports: per-document .md / .docx, full project .zip (contains all .md + metadata), or "Save files to folder" (Chromium File System Access — writes real files you can git, zip, share).
 
-All data lives in your browser (localStorage) until you export. Perfect for a focused working session.
+By default the app does not retain project content between sessions and does not allow AI uploads until you explicitly enable those options in Privacy Controls.
+
+## Privacy Defaults
+
+- Local project retention is off by default. Enable it explicitly if you want recovery across sessions on the current device.
+- AI transfers are off by default. NPI content is only sent to the configured provider after you opt in.
+- Browser builds keep AI keys only in memory for the current session.
+- Electron builds store AI keys in OS-backed secure storage via Electron's secure APIs.
+- Example SmartOps seed data is available in development, but it is stripped from production builds.
 
 ## Portable desktop app (Electron)
 
@@ -88,7 +96,6 @@ Once packaged you get a real no-install executable (or AppImage on Linux) that f
 
 ## Next (after this foundation)
 
-- Wire native file dialogs / secure key storage via Electron preload when packaged.
 - Add "consistency check across docs" AI action (global).
 - Versioned snapshots inside a project.
 - Apply the exact same portable packaging pattern to the main Interactive NPI Guide and other modules of the Product Developer project.
@@ -103,3 +110,55 @@ Two high-quality assets were created to communicate the NPI Builder flow:
 - **NPI-Builder-Workflow.png** — Polished static 16:9 version ideal for READMEs, decks, Notion, marketing, or documentation.
 
 Both reflect the canonical 9-stage guided flow with emphasis on strong context propagation.
+
+## Mermaid Workflow (Copy/Paste Ready)
+
+Use this in Markdown environments that support Mermaid rendering:
+
+```mermaid
+flowchart LR
+  classDef phase0 fill:#DFF4FF,stroke:#0EA5E9,stroke-width:1.4px,color:#082F49;
+  classDef phase1 fill:#DCFCE7,stroke:#16A34A,stroke-width:1.4px,color:#052E16;
+  classDef phase2 fill:#F3E8FF,stroke:#9333EA,stroke-width:1.4px,color:#3B0764;
+  classDef phase3 fill:#FFEDD5,stroke:#EA580C,stroke-width:1.4px,color:#431407;
+  classDef phase4 fill:#FEE2E2,stroke:#DC2626,stroke-width:1.4px,color:#450A0A;
+  classDef gate fill:#E5E7EB,stroke:#6B7280,stroke-width:1.2px,color:#111827;
+  classDef support fill:#ECFEFF,stroke:#0891B2,stroke-width:1.2px,color:#083344;
+
+  Ctx[("Project Context\nAI Settings\nHistory")]:::support
+
+  subgraph Flow[Guided NPI Flow]
+    direction LR
+    PCD["1 PCD\nConcept"]:::phase0 --> G1{"Go"}:::gate
+    G1 --> PRD["2 PRD\nRequirements"]:::phase1 --> PDD["3 PDD\nDesign"]:::phase1 --> G2{"Go"}:::gate
+    G2 --> SDD["4 SDD"]:::phase2 --> HLD["5 HLD"]:::phase2 --> LLD["6 LLD"]:::phase2 --> G3{"Go"}:::gate
+    G3 --> RR["7 Risk"]:::phase3 --> LC["8 Launch"]:::phase3 --> G4{"Go"}:::gate
+    G4 --> PLR["9 Review"]:::phase4
+  end
+
+  Ctx -. context .-> PCD
+  Ctx -. context .-> PRD
+  Ctx -. context .-> PDD
+  Ctx -. context .-> SDD
+  Ctx -. context .-> HLD
+  Ctx -. context .-> LLD
+  Ctx -. context .-> RR
+  Ctx -. context .-> LC
+  Ctx -. context .-> PLR
+
+  PCD -. propagate .-> PRD
+  PRD -. propagate .-> PDD
+  PDD -. propagate .-> SDD
+  SDD -. propagate .-> HLD
+  HLD -. propagate .-> LLD
+  LLD -. propagate .-> RR
+  RR -. propagate .-> LC
+  LC -. propagate .-> PLR
+
+  G1 -. refine .-> PCD
+  G2 -. revise .-> PRD
+  G3 -. rework .-> SDD
+  G4 -. close gaps .-> RR
+```
+
+Source file: `NPI-Builder-Workflow.mmd`.

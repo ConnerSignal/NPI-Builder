@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { artifacts, getArtifact } from './data/artifacts';
-import { SMART_OPS_EXAMPLES } from './data/smartOpsExamples';
 import {
   AI_PROVIDER_PRESETS,
   applyFallbackPreset,
   applyPrimaryPreset,
   generateSection,
+  getDefaultAIConfig,
   getProviderPreset,
   loadAIConfig,
   saveAIConfig,
@@ -17,6 +17,58 @@ import { Download, FolderOpen, History, RefreshCw, Save, Settings, Zap } from 'l
 import npiLogo from './assets/npi-builder-logo.jpg';
 
 const STORAGE_KEY = 'npi-document-builder-project';
+const PRIVACY_SETTINGS_KEY = 'npi-document-builder-privacy-settings';
+const EXAMPLES_ENABLED = import.meta.env.DEV;
+
+type PrivacySettings = {
+  rememberLocally: boolean;
+  allowAiTransfers: boolean;
+};
+
+type ExampleDocs = Record<string, Record<string, string>>;
+
+function getDefaultPrivacySettings(): PrivacySettings {
+  return {
+    rememberLocally: false,
+    allowAiTransfers: false,
+  };
+}
+
+function loadPrivacySettings(): PrivacySettings {
+  try {
+    const raw = localStorage.getItem(PRIVACY_SETTINGS_KEY);
+    if (raw) return { ...getDefaultPrivacySettings(), ...JSON.parse(raw) };
+  } catch {}
+  return getDefaultPrivacySettings();
+}
+
+function savePrivacySettings(settings: PrivacySettings) {
+  localStorage.setItem(PRIVACY_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function loadStoredProject(): Project | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+
+    const loaded = JSON.parse(raw);
+    if (loaded && loaded.updatedAt) {
+      const last = new Date(loaded.updatedAt);
+      const minutesAgo = Math.floor((Date.now() - last.getTime()) / 60000);
+      if (minutesAgo < 60) {
+        (window as any).__npi_recovered = `Work recovered from ${last.toLocaleTimeString()} (${minutesAgo}m ago)`;
+      }
+    }
+    if (!loaded.history) loaded.history = [];
+    return loaded;
+  } catch {
+    return null;
+  }
+}
+
+function removeStoredProject() {
+  localStorage.removeItem(STORAGE_KEY);
+}
 
 // Logical NPI document flow order for guided, low-friction experience
 const WORKFLOW_ORDER = ['pcd', 'prd', 'pdd', 'sdd', 'hld', 'lld', 'risk-register', 'launch-checklist', 'post-launch-review'] as const;
@@ -100,24 +152,12 @@ function insertFormatting(current: string, before: string, after = ''): string {
 }
 
 function App() {
+  const [privacySettings, setPrivacySettings] = useState<PrivacySettings>(loadPrivacySettings);
   const [project, setProject] = useState<Project>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const loaded = JSON.parse(raw);
-        // Graceful recovery message
-        if (loaded && loaded.updatedAt) {
-          const last = new Date(loaded.updatedAt);
-          const minutesAgo = Math.floor((Date.now() - last.getTime()) / 60000);
-          if (minutesAgo < 60) {
-            // We'll show a non-intrusive banner
-            (window as any).__npi_recovered = `Work recovered from ${last.toLocaleTimeString()} (${minutesAgo}m ago)`;
-          }
-        }
-        if (!loaded.history) loaded.history = [];
-        return loaded;
-      }
-    } catch {}
+    if (loadPrivacySettings().rememberLocally) {
+      const stored = loadStoredProject();
+      if (stored) return stored;
+    }
     return createEmptyProject();
   });
 
@@ -129,7 +169,7 @@ function App() {
   const [customInstruction, setCustomInstruction] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [previewFields, setPreviewFields] = useState<Record<string, boolean>>({});
-  const [lastSaved, setLastSaved] = useState<string>('Just now');
+  const [lastSaved, setLastSaved] = useState<string>(privacySettings.rememberLocally ? 'Not yet' : 'Local save off');
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   const [isWizardMode, setIsWizardMode] = useState(false);
 
@@ -146,9 +186,35 @@ function App() {
 
   const primaryPreset = useMemo(() => getProviderPreset(aiConfig.providerPresetId), [aiConfig.providerPresetId]);
   const fallbackPreset = useMemo(() => getProviderPreset(aiConfig.fallbackPresetId), [aiConfig.fallbackPresetId]);
+  const aiUploadsEnabled = privacySettings.allowAiTransfers;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateSecureSecrets() {
+      const secureStore = (window as any).npiSecureStore;
+      if (!secureStore?.getSecrets) return;
+
+      try {
+        const secrets = await secureStore.getSecrets();
+        if (!cancelled && secrets) {
+          setAiConfig(prev => ({ ...prev, ...secrets }));
+        }
+      } catch (error) {
+        console.warn('Failed to hydrate secure AI secrets:', error);
+      }
+    }
+
+    hydrateSecureSecrets();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Super robust auto-save: immediate + debounced safety net
   const saveToStorage = (proj: Project) => {
+    if (!privacySettings.rememberLocally) return;
+
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(proj));
       const now = new Date();
@@ -160,20 +226,22 @@ function App() {
 
   // Auto-save on every project change (already reactive)
   useEffect(() => {
-    saveToStorage(project);
-  }, [project]);
+    if (privacySettings.rememberLocally) {
+      saveToStorage(project);
+    }
+  }, [project, privacySettings.rememberLocally]);
 
   // Extra safety: auto-checkpoint + save when user leaves the tab (prevents loss on crash/close)
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') {
+      if (privacySettings.rememberLocally && document.visibilityState === 'hidden') {
         // Force a checkpoint when stepping away
         const snap = saveSnapshot(project, 'Auto-saved on tab away');
         saveToStorage(snap);
       }
     };
     const handleBeforeUnload = () => {
-      saveToStorage(project);
+      if (privacySettings.rememberLocally) saveToStorage(project);
     };
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -181,7 +249,7 @@ function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [project]);
+  }, [project, privacySettings.rememberLocally]);
 
   // Show recovery message once on mount
   useEffect(() => {
@@ -198,10 +266,9 @@ function App() {
   const selectedArtifact = useMemo(() => getArtifact(selectedDocId), [selectedDocId]);
   const currentDoc = project.documents[selectedDocId] || {};
 
-  // Auto-persist
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
-  }, [project]);
+    setLastSaved(privacySettings.rememberLocally ? 'Not yet' : 'Local save off');
+  }, [privacySettings.rememberLocally]);
 
   // Compute overall progress
   const progress = useMemo(() => {
@@ -254,10 +321,14 @@ function App() {
     updateField(fieldKey, newValue);
   }
 
-  function loadExample(full = false) {
+  async function loadExample(full = false) {
+    if (!EXAMPLES_ENABLED) return;
+
+    const { SMART_OPS_EXAMPLES } = await import('./data/smartOpsExamples');
+
     updateProject(p => {
       const nextDocs = { ...p.documents };
-      const examplesToUse = full ? SMART_OPS_EXAMPLES : SMART_OPS_EXAMPLES;
+      const examplesToUse: ExampleDocs = full ? SMART_OPS_EXAMPLES : SMART_OPS_EXAMPLES;
       for (const [docId, fields] of Object.entries(examplesToUse)) {
         nextDocs[docId] = { ...(nextDocs[docId] || {}), ...fields };
       }
@@ -306,6 +377,8 @@ function App() {
   }
 
   async function generateStarterForNext(nextId: string, fieldKey: string) {
+    if (!requireAiTransfers()) return;
+
     try {
       const nextArt = getArtifact(nextId);
       const summary = `${selectedArtifact.shortName} summary:\n${Object.entries(currentDoc)
@@ -335,6 +408,8 @@ function App() {
 
   // Stronger propagation: Draft entire next document(s) from all upstream context
   async function propagateToNext(targetDocId?: string) {
+    if (!requireAiTransfers()) return;
+
     const target = targetDocId || nextDocId;
     if (!target) return;
 
@@ -400,6 +475,7 @@ function App() {
   // ProdBot - permanent Smart Assistant
   async function sendToProdBot(message: string) {
     if (!message.trim()) return;
+    if (!requireAiTransfers()) return;
 
     const userMsg = { role: 'user' as const, text: message };
     setProdBotMessages(prev => [...prev, userMsg]);
@@ -534,7 +610,49 @@ function App() {
     setSelectedDocId(artifacts[0].id);
   }
 
+  function updatePrivacy(next: PrivacySettings) {
+    setPrivacySettings(next);
+    savePrivacySettings(next);
+
+    if (!next.rememberLocally) {
+      removeStoredProject();
+      setRecoveryMessage(null);
+    } else {
+      saveToStorage(project);
+    }
+  }
+
+  async function clearLocalData() {
+    if (!confirm('Clear all locally stored project data, AI settings, and saved AI secrets on this device?')) return;
+
+    removeStoredProject();
+    localStorage.removeItem('npi-ai-config');
+    updatePrivacy({ rememberLocally: false, allowAiTransfers: false });
+
+    const secureStore = (window as any).npiSecureStore;
+    if (secureStore?.clearSecrets) {
+      try {
+        await secureStore.clearSecrets();
+      } catch (error) {
+        console.warn('Failed to clear secure AI secrets:', error);
+      }
+    }
+
+    setAiConfig(getDefaultAIConfig());
+    setProject(createEmptyProject());
+    setSelectedDocId(artifacts[0].id);
+    setRecoveryMessage('Cleared all locally stored data for this session.');
+  }
+
+  function requireAiTransfers(): boolean {
+    if (aiUploadsEnabled) return true;
+    setLastAiError('AI transfers are disabled. Enable them in Privacy Controls before using AI features.');
+    return false;
+  }
+
   async function runAI(fieldKey: string, mode: 'generate' | 'refine' | 'critique') {
+    if (!requireAiTransfers()) return;
+
     const key = `${selectedDocId}:${fieldKey}:${mode}`;
     setAiBusy(key);
     setLastAiError(null);
@@ -592,6 +710,8 @@ function App() {
   }
 
   async function bulkFillEmpty(regenerateAll = false) {
+    if (!requireAiTransfers()) return;
+
     setAiBusy('bulk');
     setLastAiError(null);
     const fieldsToProcess = Object.keys(selectedArtifact.template).filter(k => 
@@ -623,6 +743,8 @@ function App() {
   }
 
   async function runConsistencyReview() {
+    if (!requireAiTransfers()) return;
+
     setAiBusy('consistency');
     setLastAiError(null);
 
@@ -661,9 +783,27 @@ function App() {
   function saveAIConfigLocal(partial: Partial<AIConfig>) {
     const next = saveAIConfig(partial);
     setAiConfig(next);
+
+    const secureStore = (window as any).npiSecureStore;
+    const secretUpdate: Partial<AIConfig> = {};
+
+    if (Object.prototype.hasOwnProperty.call(partial, 'apiKey')) {
+      secretUpdate.apiKey = partial.apiKey || '';
+    }
+    if (Object.prototype.hasOwnProperty.call(partial, 'fallbackApiKey')) {
+      secretUpdate.fallbackApiKey = partial.fallbackApiKey || '';
+    }
+
+    if (Object.keys(secretUpdate).length > 0 && secureStore?.setSecrets) {
+      secureStore.setSecrets(secretUpdate).catch((error: unknown) => {
+        console.warn('Failed to persist secure AI secrets:', error);
+      });
+    }
   }
 
   async function testAI() {
+    if (!requireAiTransfers()) return;
+
     try {
       setLastAiError(null);
       const test = await generateSection(aiConfig, {
@@ -755,8 +895,8 @@ function App() {
         <div className="row" style={{ gap: 6 }}>
           <button className="btn small" onClick={newProject}><RefreshCw size={14} style={{ marginRight: 4 }} /> New</button>
           <button className="btn small" onClick={resetProject}>Reset</button>
-          <button className="btn small primary" onClick={() => loadExample(false)}>SmartOps</button>
-          <button className="btn small" onClick={() => loadExample(true)} title="Load complete filled examples for all documents">Full</button>
+          {EXAMPLES_ENABLED && <button className="btn small primary" onClick={() => loadExample(false)}>SmartOps</button>}
+          {EXAMPLES_ENABLED && <button className="btn small" onClick={() => loadExample(true)} title="Load complete filled examples for all documents">Full</button>}
         </div>
 
         <div>
@@ -798,8 +938,8 @@ function App() {
         </div>
 
         <div style={{ marginTop: 'auto', paddingTop: 12, fontSize: '0.72rem', color: 'var(--muted)' }}>
-          Data stays in your browser (localStorage) until you export.<br />
-          Use exports or "Save to folder" for true portability.
+          Local retention is off by default.<br />
+          Enable device storage only if you want recovery across sessions.
         </div>
       </aside>
 
@@ -827,7 +967,7 @@ function App() {
           <h2>{selectedArtifact.shortName} — {selectedArtifact.name}</h2>
           <span className="chip">{docProgress.filled}/{docProgress.total} filled • {docProgress.percent}%</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span className="stat" style={{ fontSize: '0.75rem' }}>Auto-saved {lastSaved}</span>
+            <span className="stat" style={{ fontSize: '0.75rem' }}>{privacySettings.rememberLocally ? `Saved locally ${lastSaved}` : 'Local save off'}</span>
             <button className="btn" onClick={() => setShowSettings(true)}><Settings size={15} style={{ marginRight: 6 }} /> AI Settings</button>
           </div>
         </div>
@@ -880,7 +1020,7 @@ function App() {
               <p style={{ margin: 0, color: 'var(--muted)' }}>{selectedArtifact.definition}</p>
               <p style={{ marginTop: 4, fontSize: '0.85rem' }}><strong>Purpose:</strong> {selectedArtifact.purpose}</p>
             </div>
-            <button className="btn small" onClick={() => bulkFillEmpty(false)} disabled={!!aiBusy}>
+            <button className="btn small" onClick={() => bulkFillEmpty(false)} disabled={!!aiBusy || !aiUploadsEnabled}>
               <Zap size={14} style={{ marginRight: 4 }} /> {aiBusy === 'bulk' ? 'Working…' : 'AI Fill empty'}
             </button>
           </div>
@@ -925,7 +1065,7 @@ function App() {
           <div className="ai-row" style={{ marginBottom: 8, gap: '5px', flexWrap: 'wrap' }}>
             <button 
               className="btn small primary" 
-              disabled={!!aiBusy} 
+              disabled={!!aiBusy || !aiUploadsEnabled} 
               onClick={() => bulkFillEmpty(false)}
               title="Fill all empty sections in this document using AI + your project context"
             >
@@ -933,14 +1073,14 @@ function App() {
             </button>
             <button 
               className="btn small" 
-              disabled={!!aiBusy} 
+              disabled={!!aiBusy || !aiUploadsEnabled} 
               onClick={() => bulkFillEmpty(true)}
             >
               {aiBusy === 'bulk' ? 'Working…' : 'Regenerate this doc'}
             </button>
             <button 
               className="btn small" 
-              disabled={!!aiBusy} 
+              disabled={!!aiBusy || !aiUploadsEnabled} 
               onClick={runConsistencyReview}
               title="AI reviews all your documents together for consistency and gaps"
             >
@@ -1026,13 +1166,13 @@ function App() {
                 )}
 
                 <div className="ai-row">
-                  <button className="btn small" disabled={!!aiBusy} onClick={() => runAI(key, 'generate')}>
+                  <button className="btn small" disabled={!!aiBusy || !aiUploadsEnabled} onClick={() => runAI(key, 'generate')}>
                     {isBusy && aiBusy?.includes(':generate') ? 'Generating…' : 'AI Generate'}
                   </button>
-                  <button className="btn small" disabled={!!aiBusy || !value} onClick={() => runAI(key, 'refine')}>
+                  <button className="btn small" disabled={!!aiBusy || !value || !aiUploadsEnabled} onClick={() => runAI(key, 'refine')}>
                     {isBusy && aiBusy?.includes(':refine') ? 'Refining…' : 'AI Refine'}
                   </button>
-                  <button className="btn small" disabled={!!aiBusy || !value} onClick={() => runAI(key, 'critique')}>
+                  <button className="btn small" disabled={!!aiBusy || !value || !aiUploadsEnabled} onClick={() => runAI(key, 'critique')}>
                     {isBusy && aiBusy?.includes(':critique') ? 'Critiquing…' : 'AI Critique'}
                   </button>
                 </div>
@@ -1062,7 +1202,35 @@ function App() {
             value={project.context}
             onChange={e => updateProject(p => ({ ...p, context: e.target.value }))}
           />
-          <div className="stat" style={{ marginTop: 6 }}>This text is sent with every AI request for consistency.</div>
+          <div className="stat" style={{ marginTop: 6 }}>
+            {aiUploadsEnabled ? 'This text is sent with AI requests when AI transfers are enabled.' : 'AI transfers are currently disabled.'}
+          </div>
+        </div>
+
+        <div className="panel" style={{ marginBottom: 12, fontSize: '0.85rem' }}>
+          <div className="section-head" style={{ marginBottom: 8 }}>
+            <strong>Privacy Controls</strong>
+          </div>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
+            <input
+              type="checkbox"
+              checked={privacySettings.rememberLocally}
+              onChange={e => updatePrivacy({ ...privacySettings, rememberLocally: e.target.checked })}
+            />
+            <span>Remember this project on this device between sessions.</span>
+          </label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
+            <input
+              type="checkbox"
+              checked={privacySettings.allowAiTransfers}
+              onChange={e => updatePrivacy({ ...privacySettings, allowAiTransfers: e.target.checked })}
+            />
+            <span>Allow NPI content to be sent to the configured AI provider.</span>
+          </label>
+          <div className="stat" style={{ marginBottom: 10 }}>
+            Browser builds keep AI keys only in memory. Electron stores keys in OS-backed secure storage.
+          </div>
+          <button className="btn" onClick={clearLocalData}>Clear all local data</button>
         </div>
 
         <div className="panel">
@@ -1176,15 +1344,15 @@ function App() {
                 placeholder="Ask ProdBot..."
                 value={prodBotInput}
                 onChange={e => setProdBotInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') sendToProdBot(prodBotInput); }}
+                onKeyDown={e => { if (e.key === 'Enter' && aiUploadsEnabled) sendToProdBot(prodBotInput); }}
               />
-              <button className="btn small" onClick={() => sendToProdBot(prodBotInput)} disabled={!!aiBusy || !prodBotInput.trim()}>Send</button>
+              <button className="btn small" onClick={() => sendToProdBot(prodBotInput)} disabled={!!aiBusy || !prodBotInput.trim() || !aiUploadsEnabled}>Send</button>
             </div>
 
             <div style={{ display: 'flex', gap: 3, marginTop: 5, flexWrap: 'wrap' }}>
-              <button className="btn small" disabled={!!aiBusy} onClick={() => propagateToNext()}>Propagate</button>
-              <button className="btn small" disabled={!!aiBusy} onClick={runConsistencyReview}>Audit</button>
-              <button className="btn small" onClick={() => sendToProdBot('What should I do next?')}>Next?</button>
+              <button className="btn small" disabled={!!aiBusy || !aiUploadsEnabled} onClick={() => propagateToNext()}>Propagate</button>
+              <button className="btn small" disabled={!!aiBusy || !aiUploadsEnabled} onClick={runConsistencyReview}>Audit</button>
+              <button className="btn small" disabled={!aiUploadsEnabled} onClick={() => sendToProdBot('What should I do next?')}>Next?</button>
             </div>
           </div>
         )}
@@ -1193,7 +1361,7 @@ function App() {
           <div><strong>AI Provider</strong></div>
           <div className="stat" style={{ margin: '4px 0' }}>{aiConfig.baseUrl} — {aiConfig.model}</div>
           <button className="btn small" onClick={() => setShowSettings(true)}>Edit AI settings</button>
-          {aiConfig.apiKey && <div className="chip" style={{ marginTop: 8, display: 'inline-block' }}>Key stored locally</div>}
+          {aiConfig.apiKey && <div className="chip" style={{ marginTop: 8, display: 'inline-block' }}>Key loaded for this session</div>}
         </div>
 
         <div style={{ fontSize: '0.7rem', color: 'var(--muted)', padding: '0 4px' }}>
@@ -1303,16 +1471,16 @@ function App() {
                 placeholder="Ask anything... (e.g. propagate, review risks, suggest next)"
                 value={prodBotInput}
                 onChange={e => setProdBotInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') sendToProdBot(prodBotInput); }}
+                onKeyDown={e => { if (e.key === 'Enter' && aiUploadsEnabled) sendToProdBot(prodBotInput); }}
               />
-              <button className="btn" onClick={() => sendToProdBot(prodBotInput)} disabled={!!aiBusy || !prodBotInput.trim()}>Send</button>
+              <button className="btn" onClick={() => sendToProdBot(prodBotInput)} disabled={!!aiBusy || !prodBotInput.trim() || !aiUploadsEnabled}>Send</button>
             </div>
 
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="btn small" disabled={!!aiBusy} onClick={() => propagateToNext()}>Propagate upstream</button>
-              <button className="btn small" disabled={!!aiBusy} onClick={runConsistencyReview}>Full consistency review</button>
-              <button className="btn small" onClick={() => sendToProdBot('Give me the best next action right now')}>Best next action</button>
-              <button className="btn small" onClick={() => sendToProdBot('Review all documents for gaps or contradictions')}>Audit everything</button>
+              <button className="btn small" disabled={!!aiBusy || !aiUploadsEnabled} onClick={() => propagateToNext()}>Propagate upstream</button>
+              <button className="btn small" disabled={!!aiBusy || !aiUploadsEnabled} onClick={runConsistencyReview}>Full consistency review</button>
+              <button className="btn small" disabled={!aiUploadsEnabled} onClick={() => sendToProdBot('Give me the best next action right now')}>Best next action</button>
+              <button className="btn small" disabled={!aiUploadsEnabled} onClick={() => sendToProdBot('Review all documents for gaps or contradictions')}>Audit everything</button>
             </div>
           </div>
         </div>
@@ -1327,7 +1495,7 @@ function App() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 20, fontWeight: 600 }}>Wizard Mode — {selectedArtifact.shortName}</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn" onClick={() => propagateToNext()}>Propagate from upstream</button>
+              <button className="btn" onClick={() => propagateToNext()} disabled={!aiUploadsEnabled}>Propagate from upstream</button>
               <button className="btn primary" onClick={goToNextStep} disabled={!nextDocId}>Next Document</button>
               <button className="btn" onClick={() => setIsWizardMode(false)}>Exit Wizard (Esc)</button>
             </div>
@@ -1372,8 +1540,8 @@ function App() {
                     )}
                     <div className="ai-row" style={{ marginTop: 4 }}>
                       <button className="btn small" onClick={() => togglePreview(key)}>{showPreview ? 'Edit' : 'Preview'}</button>
-                      <button className="btn small" disabled={!!aiBusy} onClick={() => runAI(key, 'generate')}>AI Generate</button>
-                      <button className="btn small" disabled={!!aiBusy} onClick={() => runAI(key, 'refine')}>Refine</button>
+                      <button className="btn small" disabled={!!aiBusy || !aiUploadsEnabled} onClick={() => runAI(key, 'generate')}>AI Generate</button>
+                      <button className="btn small" disabled={!!aiBusy || !aiUploadsEnabled} onClick={() => runAI(key, 'refine')}>Refine</button>
                     </div>
                   </div>
                 );
@@ -1382,7 +1550,7 @@ function App() {
           </div>
 
           <div style={{ marginTop: 16, textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
-            Focused wizard • All auto-save still active • Press Esc to exit
+            Focused wizard • Local retention is optional • Press Esc to exit
           </div>
         </div>
       )}
@@ -1440,7 +1608,7 @@ function App() {
               />
             </div>
             <div style={{ marginTop: 10 }}>
-              <label>API Key (stored only in this browser)</label>
+              <label>API Key ({(window as any).npiSecureStore ? 'stored in OS secure storage for Electron' : 'kept only for this browser session'})</label>
               <input
                 className="input"
                 type="password"
@@ -1519,12 +1687,12 @@ function App() {
             </div>
 
             <div className="row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
-              <button className="btn" onClick={testAI}>Test connection</button>
+              <button className="btn" onClick={testAI} disabled={!aiUploadsEnabled}>Test connection</button>
               <button className="btn primary" onClick={() => setShowSettings(false)}>Done</button>
             </div>
 
             <div style={{ fontSize: '0.75rem', marginTop: 12, color: 'var(--muted)' }}>
-              Tip: For your quota issue, set Primary preset to OpenAI and enable fallback with Copilot preset.
+              Tip: Enable AI transfers in Privacy Controls before testing providers or generating content.
             </div>
           </div>
         </div>
