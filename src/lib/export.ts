@@ -16,14 +16,17 @@ export interface ProjectVersion {
   };
 }
 
-export interface Project {
+export type Project = {
   id: string;
   name: string;
   context: string;
-  documents: Record<string, ProjectDoc>;
+  version: string;
+  author: string;
+  description: string;
+  documents: Record<string, Record<string, string>>;
   updatedAt: string;
-  history?: ProjectVersion[];
-}
+  history: ProjectVersion[];
+};
 
 export function projectToMarkdown(proj: Project, docId?: string): string {
   const lines: string[] = [];

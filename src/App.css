@@ -182,3 +182,47 @@
     border-right-color: var(--border);
   }
 }
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-meta-inputs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-right: 16px;
+  border-right: 1px solid var(--border-color);
+  margin-right: 8px;
+}
+
+.project-meta-inputs input {
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  width: 120px;
+}
+
+.project-meta-inputs input::placeholder {
+  color: var(--text-color-light);
+}
+
+.date-display {
+  font-size: 13px;
+  color: var(--text-color-light);
+  padding: 4px 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.main-content {
+  display: flex;
+  flex-grow: 1;
+}
