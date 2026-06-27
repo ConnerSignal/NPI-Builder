@@ -1251,6 +1251,13 @@ function App() {
             >
               <Download size={14} style={{ marginRight: 4 }} /> Export Full Pack (PDF)
             </button>
+            <button
+              className="btn"
+              onClick={() => exportMinimalistPdf(project, selectedDocId)}
+              title={`Download only ${selectedArtifact.shortName} as a PDF`}
+            >
+              <Download size={14} style={{ marginRight: 4 }} /> {selectedArtifact.shortName} .pdf
+            </button>
             <button className="btn" onClick={() => exportMinimalistDocx(project, selectedDocId)}>
               <Download size={14} style={{ marginRight: 4 }} /> {selectedArtifact.shortName} .docx
             </button>

@@ -28,6 +28,8 @@ export type Project = {
   history: ProjectVersion[];
 };
 
+const ARTIFACT_EXPORT_ORDER = ['pcd', 'prd', 'pdd', 'sdd', 'hld', 'lld', 'risk-register', 'launch-checklist', 'post-launch-review'];
+
 export function projectToMarkdown(proj: Project, docId?: string): string {
   const lines: string[] = [];
   lines.push(`# ${proj.name}`);
@@ -168,12 +170,15 @@ export async function exportProjectZip(proj: Project): Promise<void> {
  * Clean typography, generous whitespace, subtle accent, efficient layout.
  * Designed to look professional on any NPI initiative.
  */
-export function exportMinimalistPdf(proj: Project): void {
+export function exportMinimalistPdf(proj: Project, docId?: string): void {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'pt',
     format: 'a4',
   });
+
+  const selectedArtifact = docId ? getArtifact(docId) : null;
+  const exportLabel = selectedArtifact ? `${selectedArtifact.shortName} Document` : 'NPI Document Pack';
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -198,7 +203,7 @@ export function exportMinimalistPdf(proj: Project): void {
     doc.setFontSize(8);
     doc.setTextColor(muted);
     doc.text(
-      `${proj.name} • NPI Document Pack • Page ${pageNum}`,
+      `${proj.name} • ${exportLabel} • Page ${pageNum}`,
       margin,
       pageHeight - 25
     );
@@ -212,7 +217,7 @@ export function exportMinimalistPdf(proj: Project): void {
 
   doc.setFontSize(14);
   doc.setTextColor(accent);
-  doc.text('NPI Document Pack', margin, y);
+  doc.text(exportLabel, margin, y);
   y += 25;
 
   doc.setFontSize(11);
@@ -233,28 +238,34 @@ export function exportMinimalistPdf(proj: Project): void {
   doc.line(margin, y, pageWidth - margin, y);
   y += 30;
 
-  // Table of contents style
-  doc.setFontSize(12);
-  doc.setTextColor(accent);
-  doc.text('Contents', margin, y);
-  y += 18;
+  if (selectedArtifact) {
+    doc.setFontSize(12);
+    doc.setTextColor(accent);
+    doc.text(`${selectedArtifact.shortName} — ${selectedArtifact.name}`, margin, y);
+    y += 22;
+  } else {
+    // Table of contents style
+    doc.setFontSize(12);
+    doc.setTextColor(accent);
+    doc.text('Contents', margin, y);
+    y += 18;
 
-  doc.setFontSize(10);
-  doc.setTextColor(textColor);
-  artifacts.forEach((art) => {
-    checkPageBreak(16);
-    doc.text(`${art.shortName}  —  ${art.name}`, margin, y);
-    y += 14;
-  });
+    doc.setFontSize(10);
+    doc.setTextColor(textColor);
+    artifacts.forEach((art) => {
+      checkPageBreak(16);
+      doc.text(`${art.shortName}  —  ${art.name}`, margin, y);
+      y += 14;
+    });
 
-  y += 25;
+    y += 25;
+  }
   addFooter();
 
   // Now each artifact
-  const docIds = Object.keys(proj.documents).sort((a, b) => {
-    const order = ['pcd', 'prd', 'pdd', 'sdd', 'hld', 'lld', 'risk-register', 'launch-checklist', 'post-launch-review'];
-    return order.indexOf(a) - order.indexOf(b);
-  });
+  const docIds = selectedArtifact
+    ? [selectedArtifact.id]
+    : Object.keys(proj.documents).sort((a, b) => ARTIFACT_EXPORT_ORDER.indexOf(a) - ARTIFACT_EXPORT_ORDER.indexOf(b));
 
   docIds.forEach((docId) => {
     const art = getArtifact(docId);
@@ -305,7 +316,9 @@ export function exportMinimalistPdf(proj: Project): void {
   addFooter();
 
   // Save
-  const filename = `${proj.name.replace(/[^\w-]+/g, '_')}_NPI-Pack.pdf`;
+  const filename = selectedArtifact
+    ? `${proj.name.replace(/[^\w-]+/g, '_')}_${selectedArtifact.shortName}.pdf`
+    : `${proj.name.replace(/[^\w-]+/g, '_')}_NPI-Pack.pdf`;
   doc.save(filename);
 }
 
