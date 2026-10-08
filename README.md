@@ -47,7 +47,7 @@ By default the app does not retain project content between sessions and does not
 
 - Local project retention is off by default. Enable it explicitly if you want recovery across sessions on the current device.
 - AI transfers are off by default. NPI content is only sent to the configured provider after you opt in.
-- Browser builds keep AI keys only in memory for the current session.
+- Browser builds keep AI keys in memory by default. The optional "Remember my AI key" setting stores them in browser local storage, which is not encrypted.
 - Electron builds store AI keys in OS-backed secure storage via Electron's secure APIs.
 - Example SmartOps seed data is available in development, but it is stripped from production builds.
 
@@ -162,3 +162,23 @@ flowchart LR
 ```
 
 Source file: `NPI-Builder-Workflow.mmd`.
+
+## API keys and connection checks
+
+Settings apply immediately. Editing a model or URL retains the current session key; selecting another provider clears the previous provider's key. The key suffix helps identify which key is selected, and Show keys lets you inspect what you entered.
+
+Use **AI settings > Providers / Test connection**, or **Edit AI settings**, to test. Test sends only a fixed greeting to the primary endpoint using the current model and key, even when project transfers are off. It never uses fallback. A successful result displays the endpoint, requested model, provider-reported model (when available), key suffix, and elapsed time. This confirms the endpoint accepted the request; a reported model ID is provider-supplied metadata, not independent model attestation.
+
+Enable **Allow ProdBot and AI tools to send messages and project context** to chat or generate documents. ProdBot replies show which connection responded, including any fallback. A fallback to another endpoint requires its own key. Loopback endpoints such as local Ollama may run without a key.
+
+Connection tests time out after 30 seconds; document/chat requests time out after 90 seconds per attempt. Browser providers must support cross-origin requests (CORS). Network errors show this possibility separately from explicit credential rejection. The app does not proxy requests or bypass browser security.
+
+Key storage status reports confirmed saves or failures. In browser builds, enabling Remember my AI key saves the key locally without encryption; disabling it removes the saved copy. Desktop builds use OS secure storage when available.
+
+### Verification
+
+- `npm run test:ai`: AI request and credential regression tests (Node 22.6+).
+- `npm run test:ui`: browser flows against a local mock AI server. Install Playwright Chromium with `npx playwright install chromium`, or set `PLAYWRIGHT_CHANNEL=msedge` to use installed Edge.
+- `npm run build`: TypeScript and production build.
+
+These automated checks use synthetic credentials and do not verify access to a real provider account.

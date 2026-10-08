@@ -1,19 +1,26 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { artifacts, getArtifact } from './data/artifacts';
 import {
-  AI_PROVIDER_PRESETS,
-  applyFallbackPreset,
-  applyPrimaryPreset,
-  generateSection,
+  clearRememberedKeys,
+  generateSection as requestSection,
+  testConnection,
+  responseSummary,
+  keyLabel,
+  type AIResponse,
+  type GenerateRequest,
   getDefaultAIConfig,
-  getProviderPreset,
+  hasSecureKeyStorage,
   loadAIConfig,
+  loadRememberedKeys,
   saveAIConfig,
+  saveRememberedKeys,
   type AIConfig,
 } from './lib/ai';
+import { AIConfigBar } from './components/AIConfigBar';
+import { AIProviderManager } from './components/AIProviderManager';
 import type { Project, ProjectVersion } from './lib/export';
 import { exportMinimalistPdf, exportMinimalistDocx, exportProjectZip } from './lib/export';
-import { Download, FolderOpen, History, RefreshCw, Save, Settings, Zap } from 'lucide-react';
+import { Download, FolderOpen, History, Menu, RefreshCw, Save, Zap } from 'lucide-react';
 import npiLogo from './assets/npi-builder-logo.jpg';
 
 const STORAGE_KEY = 'npi-document-builder-project';
@@ -23,6 +30,7 @@ const EXAMPLES_ENABLED = import.meta.env.DEV;
 type PrivacySettings = {
   rememberLocally: boolean;
   allowAiTransfers: boolean;
+  rememberAiKey: boolean;
 };
 
 type ExampleDocs = Record<string, Record<string, string>>;
@@ -31,6 +39,7 @@ function getDefaultPrivacySettings(): PrivacySettings {
   return {
     rememberLocally: false,
     allowAiTransfers: false,
+    rememberAiKey: false,
   };
 }
 
@@ -166,7 +175,17 @@ function App() {
 
   const [selectedDocId, setSelectedDocId] = useState(artifacts[0].id);
   const [aiConfig, setAiConfig] = useState<AIConfig>(loadAIConfig);
+  const aiConfigRef = useRef(aiConfig);
+  const configRevision = useRef(0);
+  const secretWrites = useRef<Promise<unknown>>(Promise.resolve());
+  const [keyIsPersisted, setKeyIsPersisted] = useState(false);
+  const [keyStorageMessage, setKeyStorageMessage] = useState('Keys are kept in this session.');
+  const [testResult, setTestResult] = useState<AIResponse | null>(null);
+  const [lastResponse, setLastResponse] = useState<AIResponse | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [lastAiError, setLastAiError] = useState<string | null>(null);
   const [customInstruction, setCustomInstruction] = useState('');
@@ -182,13 +201,11 @@ function App() {
   const [isProdBotDragging, setIsProdBotDragging] = useState(false);
   const prodBotDragOffset = useRef({ x: 0, y: 0 });
 
-  const [prodBotMessages, setProdBotMessages] = useState<Array<{role: 'user'|'bot', text: string}>>([
+  const [prodBotMessages, setProdBotMessages] = useState<Array<{role: 'user'|'bot', text: string, source?: string}>>([
     { role: 'bot', text: "Hi, I'm ProdBot — your NPI co-pilot. Ask me anything about your documents, propagation, or next steps." }
   ]);
   const [prodBotInput, setProdBotInput] = useState('');
 
-  const primaryPreset = useMemo(() => getProviderPreset(aiConfig.providerPresetId), [aiConfig.providerPresetId]);
-  const fallbackPreset = useMemo(() => getProviderPreset(aiConfig.fallbackPresetId), [aiConfig.fallbackPresetId]);
   const aiUploadsEnabled = privacySettings.allowAiTransfers;
 
   useEffect(() => {
@@ -196,19 +213,35 @@ function App() {
 
     async function hydrateSecureSecrets() {
       const secureStore = (window as any).npiSecureStore;
-      if (!secureStore?.getSecrets) return;
 
-      try {
-        const secrets = await secureStore.getSecrets();
-        if (!cancelled && secrets) {
-          setAiConfig(prev => ({ ...prev, ...secrets }));
+      if (secureStore?.getSecrets && await secureStore.isAvailable()) {
+        try {
+          const secrets = await secureStore.getSecrets();
+          if (!cancelled && configRevision.current === 0 && secrets) {
+            aiConfigRef.current = { ...aiConfigRef.current, ...secrets };
+            setAiConfig(aiConfigRef.current);
+            setKeyIsPersisted(Boolean(secrets.apiKey));
+            setKeyStorageMessage('Keys stored in OS secure storage.');
+            return;
+          }
+        } catch (error) {
+          console.warn('Failed to hydrate secure AI secrets:', error);
         }
-      } catch (error) {
-        console.warn('Failed to hydrate secure AI secrets:', error);
+      }
+
+      // Browser build: fall back to the key only if the user opted in.
+      if (!cancelled && configRevision.current === 0 && loadPrivacySettings().rememberAiKey) {
+        const remembered = loadRememberedKeys();
+        if (remembered.apiKey || remembered.fallbackApiKey) {
+          aiConfigRef.current = { ...aiConfigRef.current, ...remembered };
+          setAiConfig(aiConfigRef.current);
+          setKeyIsPersisted(Boolean(remembered.apiKey));
+          setKeyStorageMessage('Keys saved in this browser on this device (not encrypted).');
+        }
       }
     }
 
-    hydrateSecureSecrets();
+    hydrateSecureSecrets().catch(() => setKeyStorageMessage('Secure key storage is unavailable. Keys remain in this session.'));
     return () => {
       cancelled = true;
     };
@@ -477,13 +510,15 @@ function App() {
 
   // ProdBot - permanent Smart Assistant
   async function sendToProdBot(message: string) {
-    if (!message.trim()) return;
+    if (!message.trim() || aiBusy) return;
     if (!requireAiTransfers()) return;
 
     const userMsg = { role: 'user' as const, text: message };
     setProdBotMessages(prev => [...prev, userMsg]);
     setProdBotInput('');
     setAiBusy('prodbot');
+    setLastAiError(null);
+    let source: string | undefined;
 
     try {
       // Build rich context for ProdBot
@@ -505,10 +540,11 @@ function App() {
         otherContext: contextSummary,
         mode: 'generate',
         userInstruction: message,
-      });
+      }, result => { source = responseSummary(result); });
 
-      setProdBotMessages(prev => [...prev, { role: 'bot', text: result }]);
+      setProdBotMessages(prev => [...prev, { role: 'bot', text: result, source }]);
     } catch (e: any) {
+      setLastAiError(e.message || String(e));
       setProdBotMessages(prev => [...prev, { role: 'bot', text: `Sorry, I had trouble: ${e.message || e}` }]);
     } finally {
       setAiBusy(null);
@@ -623,6 +659,10 @@ function App() {
     } else {
       saveToStorage(project);
     }
+
+    if (!next.rememberAiKey) clearRememberedKeys();
+    persistAIKeys(aiConfigRef.current, next.rememberAiKey);
+
   }
 
   async function clearLocalData() {
@@ -630,18 +670,27 @@ function App() {
 
     removeStoredProject();
     localStorage.removeItem('npi-ai-config');
-    updatePrivacy({ rememberLocally: false, allowAiTransfers: false });
+    clearRememberedKeys();
+    configRevision.current++;
+    aiConfigRef.current = getDefaultAIConfig();
+    updatePrivacy({ rememberLocally: false, allowAiTransfers: false, rememberAiKey: false });
 
     const secureStore = (window as any).npiSecureStore;
     if (secureStore?.clearSecrets) {
       try {
+        await secretWrites.current;
         await secureStore.clearSecrets();
       } catch (error) {
         console.warn('Failed to clear secure AI secrets:', error);
       }
     }
 
-    setAiConfig(getDefaultAIConfig());
+    configRevision.current++;
+    aiConfigRef.current = getDefaultAIConfig();
+    setAiConfig(aiConfigRef.current);
+    setKeyIsPersisted(false);
+    setTestResult(null);
+    setLastResponse(null);
     setProject(createEmptyProject());
     setSelectedDocId(artifacts[0].id);
     setRecoveryMessage('Cleared all locally stored data for this session.');
@@ -783,48 +832,72 @@ function App() {
     }
   }
 
-  function saveAIConfigLocal(partial: Partial<AIConfig>) {
-    const next = saveAIConfig(partial);
-    setAiConfig(next);
+  async function generateSection(config: AIConfig, request: GenerateRequest, onResponse?: (response: AIResponse) => void) {
+    const revision = configRevision.current;
+    return requestSection(config, request, result => {
+      if (revision === configRevision.current) setLastResponse(result);
+      onResponse?.(result);
+    });
+  }
 
+  function persistAIKeys(config: AIConfig, remember = privacySettings.rememberAiKey) {
+    const revision = configRevision.current;
+    const secrets = { apiKey: config.apiKey, fallbackApiKey: config.fallbackApiKey || '' };
     const secureStore = (window as any).npiSecureStore;
-    const secretUpdate: Partial<AIConfig> = {};
-
-    if (Object.prototype.hasOwnProperty.call(partial, 'apiKey')) {
-      secretUpdate.apiKey = partial.apiKey || '';
-    }
-    if (Object.prototype.hasOwnProperty.call(partial, 'fallbackApiKey')) {
-      secretUpdate.fallbackApiKey = partial.fallbackApiKey || '';
-    }
-
-    if (Object.keys(secretUpdate).length > 0 && secureStore?.setSecrets) {
-      secureStore.setSecrets(secretUpdate).catch((error: unknown) => {
-        console.warn('Failed to persist secure AI secrets:', error);
+    setKeyIsPersisted(false);
+    if (secureStore?.setSecrets) {
+      setKeyStorageMessage('Saving keys to OS secure storage...');
+      // Serialize writes so an older edit cannot overwrite the latest key.
+      secretWrites.current = secretWrites.current.catch(() => {}).then(async () => {
+        const saved = await secureStore.setSecrets(secrets);
+        if (revision !== configRevision.current) return;
+        setKeyIsPersisted(Boolean(saved && secrets.apiKey));
+        setKeyStorageMessage(saved ? 'Keys stored in OS secure storage.' : 'Secure storage unavailable. Keys remain in this session.');
+      }).catch(() => {
+        if (revision === configRevision.current) setKeyStorageMessage('Could not save keys. Keys remain in this session.');
       });
+    } else {
+      const saved = remember && saveRememberedKeys(secrets);
+      setKeyIsPersisted(Boolean(saved && secrets.apiKey));
+      setKeyStorageMessage(saved ? 'Keys saved in this browser on this device (not encrypted).' : remember ? 'Could not save keys. Keys remain in this session.' : 'Keys are kept in this session.');
     }
   }
 
-  async function testAI() {
-    if (!requireAiTransfers()) return;
+  function saveAIConfigLocal(partial: Partial<AIConfig>) {
+    const current = aiConfigRef.current;
+    const next = { ...current, ...partial };
+    if (partial.apiKey !== undefined) next.apiKey = partial.apiKey.trim();
+    if (partial.fallbackApiKey !== undefined) next.fallbackApiKey = partial.fallbackApiKey.trim();
+    configRevision.current++;
+    aiConfigRef.current = next;
+    setAiConfig(next);
+    setTestResult(null);
+    setTestError(null);
+    setLastResponse(null);
+    setLastAiError(null);
+    try { saveAIConfig(next, current); }
+    catch { setTestError('Settings could not be saved on this device. Your current settings still apply in this session.'); }
+    persistAIKeys(next);
+  }
 
+  async function testAI() {
+    if (testBusy) return;
+    const revision = configRevision.current;
+    const snapshot = { ...aiConfigRef.current };
+    setTestBusy(true);
+    setLastResponse(null);
+    setTestError(null);
+    setTestResult(null);
     try {
-      setLastAiError(null);
-      const test = await generateSection(aiConfig, {
-        artifactName: 'Test',
-        shortName: 'TEST',
-        fieldKey: 'Connection',
-        fieldGuidance: 'Confirm the connection works by returning the single word: OK',
-        currentValue: '',
-        projectContext: '',
-        mode: 'generate',
-      });
-      if (test.toUpperCase().includes('OK')) {
-        alert('Connection successful! AI responded correctly.');
-      } else {
-        alert('Connected but response was: ' + test.slice(0, 140));
+      const result = await testConnection(snapshot);
+      if (revision === configRevision.current) {
+        setTestResult(result);
+        setLastAiError(null);
       }
-    } catch (e: any) {
-      setLastAiError(e?.message || String(e));
+    } catch (error) {
+      if (revision === configRevision.current) setTestError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTestBusy(false);
     }
   }
 
@@ -883,8 +956,11 @@ function App() {
 
   return (
     <div className="app">
+      {/* Scrim behind the mobile drawer */}
+      {sidebarOpen && <div className="drawer-scrim" onClick={() => setSidebarOpen(false)} />}
+
       {/* LEFT: Project + Document list */}
-      <aside className="sidebar">
+      <aside className="sidebar" data-open={sidebarOpen}>
         <div>
           <div className="chip" style={{ marginBottom: 6 }}>Standalone</div>
           <img 
@@ -927,7 +1003,7 @@ function App() {
                 <button
                   key={art.id}
                   className={`doc-item ${isActive ? 'active' : ''}`}
-                  onClick={() => setSelectedDocId(art.id)}
+                  onClick={() => { setSelectedDocId(art.id); setSidebarOpen(false); }}
                 >
                   <div>
                     <div className="name">{art.shortName}</div>
@@ -967,13 +1043,32 @@ function App() {
         )}
 
         <div className="header">
+          <button
+            className="btn small nav-toggle"
+            onClick={() => setSidebarOpen(v => !v)}
+            aria-label="Toggle document list"
+            aria-expanded={sidebarOpen}
+          >
+            <Menu size={16} />
+          </button>
           <h2>{selectedArtifact.shortName} — {selectedArtifact.name}</h2>
           <span className="chip">{docProgress.filled}/{docProgress.total} filled • {docProgress.percent}%</span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
             <span className="stat" style={{ fontSize: '0.75rem' }}>{privacySettings.rememberLocally ? `Saved locally ${lastSaved}` : 'Local save off'}</span>
-            <button className="btn" onClick={() => setShowSettings(true)}><Settings size={15} style={{ marginRight: 6 }} /> AI Settings</button>
           </div>
         </div>
+
+        {/* AI config: always visible, no scrolling, no digging */}
+        <AIConfigBar
+          aiConfig={aiConfig}
+          saveAIConfigLocal={saveAIConfigLocal}
+          onOpenProviderManager={() => setShowSettings(true)}
+          aiError={lastAiError || testError}
+          aiBusy={aiBusy}
+          transfersAllowed={aiUploadsEnabled}
+          keyIsPersisted={keyIsPersisted}
+          verified={Boolean(testResult || (lastResponse && !lastResponse.usedFallback))}
+        />
 
         {/* Frictionless Workflow Bar */}
         <div className="panel" style={{ padding: '10px 16px', marginBottom: 14, background: 'rgba(255,255,255,0.04)' }}>
@@ -1230,8 +1325,28 @@ function App() {
             />
             <span>Allow NPI content to be sent to the configured AI provider.</span>
           </label>
+
+          {!hasSecureKeyStorage() && (
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+              <input
+                type="checkbox"
+                checked={privacySettings.rememberAiKey}
+                onChange={e => updatePrivacy({ ...privacySettings, rememberAiKey: e.target.checked })}
+              />
+              <span>
+                Remember my AI key on this device so I don't have to paste it again after a restart.
+                <span className="stat" style={{ display: 'block', marginTop: 2 }}>
+                  In a browser this stores the key in plain local storage on this computer. Use a
+                  shared or managed machine with care.
+                </span>
+              </span>
+            </label>
+          )}
+
           <div className="stat" style={{ marginBottom: 10 }}>
-            Browser builds keep AI keys only in memory. Electron stores keys in OS-backed secure storage.
+            {hasSecureKeyStorage()
+              ? 'Keys are stored in your operating system secure storage.'
+              : 'Browser builds keep AI keys in memory unless you turn on the option above.'}
           </div>
           <button className="btn" onClick={clearLocalData}>Clear all local data</button>
         </div>
@@ -1338,10 +1453,16 @@ function App() {
               </div>
             </div>
 
+            <div className="ai-connection-detail">
+              {aiUploadsEnabled ? 'Using: ' + aiConfig.model + ' | ' + keyLabel(aiConfig.apiKey) : 'ProdBot is off. Enable AI transfers in settings to send messages and project context.'}
+              {aiBusy === 'prodbot' && <div role="status">Waiting for provider response...</div>}
+              {!aiUploadsEnabled && <button className="btn small" onClick={() => setShowSettings(true)}>AI settings</button>}
+            </div>
             <div style={{ flex: 1, overflowY: 'auto', background: '#0f1a33', padding: 6, borderRadius: 6, marginBottom: 6, fontSize: '0.75rem', maxHeight: 160 }}>
               {prodBotMessages.slice(-3).map((m, i) => (
                 <div key={i} style={{ marginBottom: 4, color: m.role === 'bot' ? 'var(--text)' : 'var(--accent)' }}>
-                  <strong>{m.role === 'bot' ? 'ProdBot' : 'You'}:</strong> {m.text.length > 90 ? m.text.slice(0,87) + '...' : m.text}
+                  <strong>{m.role === 'bot' ? 'ProdBot' : 'You'}:</strong> {m.text}
+                  {m.source && <div className="ai-connection-detail">{m.source}</div>}
                 </div>
               ))}
             </div>
@@ -1371,7 +1492,8 @@ function App() {
           <div><strong>AI Provider</strong></div>
           <div className="stat" style={{ margin: '4px 0' }}>{aiConfig.baseUrl} — {aiConfig.model}</div>
           <button className="btn small" onClick={() => setShowSettings(true)}>Edit AI settings</button>
-          {aiConfig.apiKey && <div className="chip" style={{ marginTop: 8, display: 'inline-block' }}>Key loaded for this session</div>}
+          {aiConfig.apiKey && <div className="chip" style={{ marginTop: 8, display: 'inline-block' }}>{keyLabel(aiConfig.apiKey)}</div>}
+          {lastResponse && <div className="ai-connection-detail">Last request: {responseSummary(lastResponse)}</div>}
         </div>
 
         <div style={{ fontSize: '0.7rem', color: 'var(--muted)', padding: '0 4px' }}>
@@ -1449,6 +1571,11 @@ function App() {
             </div>
           </div>
 
+          <div className="ai-connection-detail">
+              {aiUploadsEnabled ? 'Using: ' + aiConfig.model + ' ? ' + keyLabel(aiConfig.apiKey) : 'ProdBot is off. Enable AI transfers in settings to send messages and project context.'}
+              {aiBusy === 'prodbot' && <div role="status">Waiting for provider response...</div>}
+              {!aiUploadsEnabled && <button className="btn small" onClick={() => setShowSettings(true)}>AI settings</button>}
+            </div>
           {/* Full chat area - maximized for capability */}
           <div style={{ flex: 1, overflowY: 'auto', padding: 12, background: '#0f1a33', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {prodBotMessages.map((m, i) => (
@@ -1467,6 +1594,7 @@ function App() {
                 }}
               >
                 {m.text}
+                {m.source && <div className="ai-connection-detail">{m.source}</div>}
               </div>
             ))}
           </div>
@@ -1568,141 +1696,28 @@ function App() {
       {/* Settings Modal */}
       {showSettings && (
         <div className="modal" onClick={() => setShowSettings(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-content modal-wide" onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>AI Provider Settings</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-              Choose a preset to avoid repeatedly pasting endpoints and model names. You can still customize anything manually.
+            <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginTop: 4 }}>
+              Switch providers, models, and keys here. Changes apply immediately. Key storage status is shown below. Switching providers clears the previous provider's key.
             </p>
 
-            <div style={{ marginTop: 12 }}>
-              <label>Primary Provider Preset</label>
-              <select
-                className="input"
-                value={aiConfig.providerPresetId || 'xai'}
-                onChange={e => saveAIConfigLocal(applyPrimaryPreset(aiConfig, e.target.value))}
-              >
-                {AI_PROVIDER_PRESETS.map(p => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-              <label>Base URL</label>
-              <input
-                className="input"
-                value={aiConfig.baseUrl}
-                onChange={e => saveAIConfigLocal({ baseUrl: e.target.value })}
-                placeholder={primaryPreset.baseUrl || 'https://api.openai.com/v1'}
-              />
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <label>Model</label>
-              <select
-                className="input"
-                value={aiConfig.model}
-                onChange={e => saveAIConfigLocal({ model: e.target.value })}
-              >
-                {(primaryPreset.models.length ? primaryPreset.models : ['']).map(m => (
-                  <option key={m || 'custom'} value={m}>{m || 'Custom model'}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <label>Model (manual override)</label>
-              <input
-                className="input"
-                value={aiConfig.model}
-                onChange={e => saveAIConfigLocal({ model: e.target.value })}
-                placeholder="gpt-4.1-mini / gpt-5.5 / grok-3-latest"
-              />
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <label>API Key ({(window as any).npiSecureStore ? 'stored in OS secure storage for Electron' : 'kept only for this browser session'})</label>
-              <input
-                className="input"
-                type="password"
-                value={aiConfig.apiKey}
-                onChange={e => saveAIConfigLocal({ apiKey: e.target.value })}
-                placeholder={primaryPreset.apiKeyPlaceholder}
+            <div style={{ marginTop: 14 }}>
+              <AIProviderManager
+                aiConfig={aiConfig}
+                saveAIConfigLocal={saveAIConfigLocal}
+                onTest={testAI}
+                testBusy={testBusy}
+                testError={testError}
+                testResult={testResult}
+                keyStorageMessage={keyStorageMessage}
+                transfersAllowed={aiUploadsEnabled}
+                onTransfersChange={allowed => updatePrivacy({ ...privacySettings, allowAiTransfers: allowed })}
               />
             </div>
 
-            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={!!aiConfig.fallbackEnabled}
-                  onChange={e => saveAIConfigLocal({ fallbackEnabled: e.target.checked })}
-                />
-                Enable auto-fallback when primary returns quota/rate-limit/server errors
-              </label>
-
-              {aiConfig.fallbackEnabled && (
-                <>
-                  <div style={{ marginTop: 10 }}>
-                    <label>Fallback Provider Preset</label>
-                    <select
-                      className="input"
-                      value={aiConfig.fallbackPresetId || 'copilot'}
-                      onChange={e => saveAIConfigLocal(applyFallbackPreset(aiConfig, e.target.value))}
-                    >
-                      {AI_PROVIDER_PRESETS.map(p => (
-                        <option key={p.id} value={p.id}>{p.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ marginTop: 10 }}>
-                    <label>Fallback Base URL</label>
-                    <input
-                      className="input"
-                      value={aiConfig.fallbackBaseUrl || ''}
-                      onChange={e => saveAIConfigLocal({ fallbackBaseUrl: e.target.value })}
-                      placeholder={fallbackPreset.baseUrl || 'https://api.githubcopilot.com'}
-                    />
-                  </div>
-                  <div style={{ marginTop: 10 }}>
-                    <label>Fallback Model</label>
-                    <select
-                      className="input"
-                      value={aiConfig.fallbackModel || ''}
-                      onChange={e => saveAIConfigLocal({ fallbackModel: e.target.value })}
-                    >
-                      {(fallbackPreset.models.length ? fallbackPreset.models : ['']).map(m => (
-                        <option key={m || 'custom'} value={m}>{m || 'Custom model'}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ marginTop: 10 }}>
-                    <label>Fallback Model (manual override)</label>
-                    <input
-                      className="input"
-                      value={aiConfig.fallbackModel || ''}
-                      onChange={e => saveAIConfigLocal({ fallbackModel: e.target.value })}
-                      placeholder="gpt-5.5"
-                    />
-                  </div>
-                  <div style={{ marginTop: 10 }}>
-                    <label>Fallback API Key (optional, leave blank to reuse primary key)</label>
-                    <input
-                      className="input"
-                      type="password"
-                      value={aiConfig.fallbackApiKey || ''}
-                      onChange={e => saveAIConfigLocal({ fallbackApiKey: e.target.value })}
-                      placeholder={fallbackPreset.apiKeyPlaceholder}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
-              <button className="btn" onClick={testAI} disabled={!aiUploadsEnabled}>Test connection</button>
+            <div className="row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
               <button className="btn primary" onClick={() => setShowSettings(false)}>Done</button>
-            </div>
-
-            <div style={{ fontSize: '0.75rem', marginTop: 12, color: 'var(--muted)' }}>
-              Tip: Enable AI transfers in Privacy Controls before testing providers or generating content.
             </div>
           </div>
         </div>

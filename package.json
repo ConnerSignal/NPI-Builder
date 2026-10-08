@@ -12,7 +12,9 @@
     "dist:win": "npm run build && electron-builder --win portable",
     "dist:win-dir": "npm run build && electron-builder --win dir",
     "dist:linux": "npm run build && electron-builder --linux AppImage portable",
-    "dist:all": "npm run build && electron-builder -mwl"
+    "dist:all": "npm run build && electron-builder -mwl",
+    "test:ai": "node --experimental-strip-types --test tests/ai.test.mjs",
+    "test:ui": "playwright test"
   },
   "build": {
     "appId": "com.productdeveloper.npi-document-builder",
@@ -36,7 +38,6 @@
     "directories": {
       "buildResources": "build"
     },
-
     "win": {
       "icon": "public/npi-builder-logo.ico",
       "target": [
@@ -81,6 +82,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

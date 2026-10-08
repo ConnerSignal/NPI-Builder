@@ -70,3 +70,7 @@ Thumbs.db
 
 # Misc project-specific
 # (keep NPI-Builder-Workflow.* — they are useful documentation)
+
+# Browser test artifacts
+playwright-report/
+test-results/
