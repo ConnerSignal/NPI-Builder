@@ -66,18 +66,24 @@ jobs:
       - name: Generate checksums
         run: |
           cd release
-          sha256sum NPI-Document-Builder-Portable-${{ github.ref_name }}.exe NPI-Document-Builder-${{ github.ref_name }}-x64.ns NPI-Builder-${{ github.ref name }}-source.zip > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          sha256sum NPI-Document-Builder-Portable-${{ github.ref_name }}.exe NPI-Document-Builder-${{ github.ref_name }}-x64.exe NPI-Builder-${{ github.ref_name }}-source.zip > SHA256SUMS-${{ github.ref_name }}.txt
+          cat SHA256SUMS-${{ github.ref_name }}.txt
 
       - name: Prepare release body
         id: release_notes
         run: |
-          RELEASE_BODY=$(cat docs/releases/${{ github.ref_name }}.md)
+          # For v0.1.0, use the official release notes from docs/releases/v0.1.0.md
+          if [[ "${{ github.ref_name }}" == "v0.1.0" ]]; then
+            RELEASE_BODY=$(cat "docs/releases/v0.1.0.md")
+          else
+            # For prereleases, use a generic message
+            RELEASE_BODY="## NPI Builder ${{ github.ref_name }}\n\nThis is a prerelease version. See the official v0.1.0 release for details.\n\n## What is included\n\n- Local-first workspace for NPI documentation\n- Guided workflow for PCD, PRD, PDD, SDD, HLD, LLD, Risk Register, Launch Checklist, and Post-Launch Review\n- Optional AI assistance through OpenAI-compatible providers\n- Privacy controls: opt-in AI transfers, local retention, secure key storage\n- Export to PDF, DOCX, Markdown, and a portable project ZIP"
+          fi
           BODY="${RELEASE_BODY//'%'/'%25'}"  # Escape %
           BODY="${BODY//$'\n'/'%0A'}"        # Escape newlines
           BODY="${BODY//$'\r'/'%0D'}"        # Escape carriage returns
           echo "body=$BODY" >> $GITHUB_OUTPUT
-          echo "Release body prepared ($(wc -c < docs/releases/${{ github.ref_name }}.md) chars)"
+          echo "Release body prepared ($(wc -c < "docs/releases/v0.1.0.md" 2>/dev/null || echo 0) chars)"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -85,11 +91,11 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "NPI Builder ${{ github.ref_name }}"
           body: ${{ steps.release_notes.outputs.body }}
-          prerelease: true
+          prerelease: ${{ contains(github.ref_name, '-pre') }}
           files: |
             release/NPI-Document-Builder-Portable-${{ github.ref_name }}.exe
-            release/NPI-Document-Builder-${{ github.ref name }}-x64.ns
-            release/NPI-Builder-${{ github.ref name }}-source.zip
-            release/SHA256SUMS.txt
+            release/NPI-Document-Builder-${{ github.ref_name }}-x64.exe
+            release/NPI-Builder-${{ github.ref_name }}-source.zip
+            release/SHA256SUMS-${{ github.ref_name }}.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
