@@ -8,11 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial public release
+- GitHub Actions release workflow for automated builds, checksums, and release creation
 
 ### Known Limitations
 - Desktop builds are currently unsigned (verify checksums before running a download)
-- No automated GitHub release workflow yet (see contributing.md for manual release process)
 
 ## [0.1.0] - 2026-10-23
 
