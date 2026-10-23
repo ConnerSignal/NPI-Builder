@@ -1,76 +1,52 @@
-name: Build & Package
-
-# This workflow keeps packaging simple and reliable.
-# - Every push/PR: fast compile check only (npm run build).
-# - Manual trigger ("Run workflow" button) or tags (v*): builds the Windows portable.
-#
-# Only Windows portable is produced for now.
-# No code signing is configured on purpose — you will get Windows SmartScreen warnings
-# on downloaded executables. This matches the current "for now" scope.
-#
-# Local builds can still use `npm run dist:win-dir` (unpacked) when the local environment
-# is uncooperative (see README for workarounds).
+﻿name: Build & Package
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
-  # Enable this when you start doing real releases:
-  # push:
-  #   tags:
-  #     - 'v*'
+
+permissions:
+  contents: read
 
 jobs:
-  compile:
-    # Fast feedback on every change. Uses a clean Linux runner.
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check + Vite build
-        run: npm run build
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm run test:ai
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+        env:
+          PLAYWRIGHT_PREVIEW: '1'
 
   package-windows-portable:
-    needs: compile
-    # Only build the actual installer/portable on demand or on release tags.
-    # This avoids filling artifact storage on every commit.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    needs: verify
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
+          cache: npm
+      - run: npm ci
       - name: Package Windows portable
-        # Uses the existing script: build + electron-builder --win portable
-        # Produces NPI-Document-Builder-Portable-*.exe (see package.json "portable" section)
         run: npm run dist:win
-
-      - name: List produced artifacts (debug)
-        run: Get-ChildItem dist -Recurse -Include *.exe,*.yml | Select-Object FullName, Length
-
+      - name: Inspect application archive
+        run: node scripts/verify-package.cjs
       - name: Upload Windows portable
         uses: actions/upload-artifact@v4
         with:
           name: NPI-Builder-Windows-Portable
-          path: |
-            dist/NPI-Document-Builder-Portable-*.exe
-            dist/*.exe
-          retention-days: 30
-          if-no-files-found: warn
+          path: release/NPI-Document-Builder-Portable-*.exe
+          retention-days: 14
+          if-no-files-found: error

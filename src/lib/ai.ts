@@ -305,6 +305,9 @@ export function chatEndpoint(baseUrl: string): string {
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
     throw new Error('Use an HTTP(S) base URL without credentials, query parameters, or a fragment.');
   }
+  if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+    throw new Error('Remote AI endpoints require HTTPS. HTTP is allowed only for local loopback endpoints.');
+  }
   url.pathname = url.pathname.replace(/\/+$/, '');
   if (!url.pathname.endsWith('/chat/completions')) url.pathname += '/chat/completions';
   return url.toString();

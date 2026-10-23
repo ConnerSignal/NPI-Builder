@@ -3,6 +3,8 @@ node_modules/
 
 # Build outputs
 dist/
+release/
+public-snapshot/
 dist-ssr/
 build/
 win-unpacked/

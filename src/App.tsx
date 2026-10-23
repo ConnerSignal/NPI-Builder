@@ -25,7 +25,6 @@ import npiLogo from './assets/npi-builder-logo.jpg';
 
 const STORAGE_KEY = 'npi-document-builder-project';
 const PRIVACY_SETTINGS_KEY = 'npi-document-builder-privacy-settings';
-const EXAMPLES_ENABLED = import.meta.env.DEV;
 
 type PrivacySettings = {
   rememberLocally: boolean;
@@ -33,7 +32,6 @@ type PrivacySettings = {
   rememberAiKey: boolean;
 };
 
-type ExampleDocs = Record<string, Record<string, string>>;
 
 function getDefaultPrivacySettings(): PrivacySettings {
   return {
@@ -355,22 +353,6 @@ function App() {
     const current = currentDoc[fieldKey] || '';
     const newValue = insertFormatting(current, prefix, suffix);
     updateField(fieldKey, newValue);
-  }
-
-  async function loadExample(full = false) {
-    if (!EXAMPLES_ENABLED) return;
-
-    const { SMART_OPS_EXAMPLES } = await import('./data/smartOpsExamples');
-
-    updateProject(p => {
-      const nextDocs = { ...p.documents };
-      const examplesToUse: ExampleDocs = full ? SMART_OPS_EXAMPLES : SMART_OPS_EXAMPLES;
-      for (const [docId, fields] of Object.entries(examplesToUse)) {
-        nextDocs[docId] = { ...(nextDocs[docId] || {}), ...fields };
-      }
-      const newProject = { ...p, name: p.name === 'New Initiative' || p.name.startsWith('Untitled') ? 'SmartOps Portal' : p.name, documents: nextDocs };
-      return saveSnapshot(newProject, full ? 'Loaded full SmartOps example' : 'Loaded SmartOps example');
-    });
   }
 
   function checkpoint() {
@@ -974,8 +956,6 @@ function App() {
         <div className="row" style={{ gap: 6 }}>
           <button className="btn small" onClick={newProject}><RefreshCw size={14} style={{ marginRight: 4 }} /> New</button>
           <button className="btn small" onClick={resetProject}>Reset</button>
-          {EXAMPLES_ENABLED && <button className="btn small primary" onClick={() => loadExample(false)}>SmartOps</button>}
-          {EXAMPLES_ENABLED && <button className="btn small" onClick={() => loadExample(true)} title="Load complete filled examples for all documents">Full</button>}
         </div>
 
         <div>

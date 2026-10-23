@@ -1,184 +1,68 @@
-# NPI Document Builder (Standalone)
+﻿# NPI Builder
 
-AI-assisted standalone tool for building the core New Product Introduction (NPI) artifacts:
+Build New Product Introduction documents locally, with optional AI assistance using your own provider and API key.
 
-- PCD (Product Concept Document)
-- PRD (Product Requirements Document)
-- PDD (Product Design Document)
-- SDD / HLD / LLD (Technical design docs)
-- Risk Register
-- Launch Checklist
-- Post-Launch Review
+The guided workflow covers PCD, PRD, PDD, SDD, HLD, LLD, Risk Register, Launch Checklist, and Post-Launch Review. Edit sections, propagate context between documents, save checkpoints, and export PDF, DOCX, Markdown, or a project ZIP.
 
-## Polish Pass Completed (todo item 2)
-- **Slick minimalist PDF export** (primary polished output) + matching improved DOCX style — clean, reusable design for any project.
-- **Stronger propagation**: "Propagate to next" builds rich context from all upstream documents and drafts the target.
-- **Wizard-style full-screen mode** (big focused stepper + editor, triggered by "Wizard" or ⌘K).
-- **Keyboard shortcuts**: ⌘S checkpoint, ⌘→/← next/prev doc, / focus ProdBot, ⌘K wizard, ⌘⇧F bulk fill.
-- **Permanent "ProdBot"** Smart Assistant (always-visible chat + quick actions like propagate, consistency, "what next?").
-- **Better bulk AI operations**: Fill empties, Regenerate whole document, Cross-document Consistency Review.
-- **Versioned history**: Manual "Checkpoint" + auto-snapshots after bulk work. Restore previous states from the History panel.
-- **Nicer editing experience**: Per-field Markdown toolbar (**bold**, *italic*, lists, code, quote) + live Preview toggle that renders formatted content.
-- General UX: cleaner bulk buttons, loading states, history integration, better persistence for older projects.
+## Quick start
 
-## Quick start (web / dev version - works today)
+Requires Node.js 22.12 or later and npm.
 
 ```powershell
-cd document-builder
-npm install          # if not already
+npm ci
 npm run dev
 ```
 
-Open http://localhost:5173
+Open http://localhost:5173. Start with the project context, then work through the documents. To run Electron during development, keep Vite running and run `npm run dev:electron` in another terminal.
 
-- Fill the global **Project Context** (highly recommended — it travels with every AI call).
-- Click any document on the left.
-- Edit fields directly or use the **AI Generate / Refine / Critique** buttons per section.
-- Use "AI: Fill empty sections" for a document.
-- Configure your LLM in **AI Settings** (top right or gear):
-  - xAI Grok: `https://api.x.ai/v1` + model `grok-3-latest` (or current)
-  - OpenAI: `https://api.openai.com/v1`
-  - Local (Ollama): `http://localhost:11434/v1` after `ollama run llama3.1` etc.
-- Exports: per-document .md / .docx, full project .zip (contains all .md + metadata), or "Save files to folder" (Chromium File System Access — writes real files you can git, zip, share).
+## AI settings and privacy
 
-By default the app does not retain project content between sessions and does not allow AI uploads until you explicitly enable those options in Privacy Controls.
+AI transfers and local project retention are off by default. Enable each explicitly in Privacy Controls. AI requests send your messages, project context, and relevant document sections to the provider you configure. An enabled fallback may send the same content to its configured provider.
 
-## Privacy Defaults
+Remote endpoints require HTTPS. HTTP is accepted only for localhost, 127.0.0.1, and ::1, including local Ollama. Browser providers must allow cross-origin requests (CORS).
 
-- Local project retention is off by default. Enable it explicitly if you want recovery across sessions on the current device.
-- AI transfers are off by default. NPI content is only sent to the configured provider after you opt in.
-- Browser builds keep AI keys in memory by default. The optional "Remember my AI key" setting stores them in browser local storage, which is not encrypted.
-- Electron builds store AI keys in OS-backed secure storage via Electron's secure APIs.
-- Example SmartOps seed data is available in development, but it is stripped from production builds.
+Use **Test connection** to verify the primary endpoint, model, and key. This sends only a fixed greeting, even when project transfers are disabled; it does not use fallback or project content. Tests time out after 30 seconds; generation requests after 90 seconds per attempt.
 
-## Portable desktop app (Electron)
+Browser keys stay in memory unless you enable **Remember my AI key**. Remembered browser keys are stored without encryption. Desktop keys use the operating system's secure storage when available; unsupported Linux key stores fall back to session-only keys. OS storage protects data at rest, not against malicious software running as you or a compromised renderer.
 
-The project is already set up for true standalone portable apps.
+Project exports contain your document content, metadata, and, for project JSON/ZIP, saved history. Review exports before sharing them. No filled project examples are included in the source or application.
+
+## Desktop packages
 
 ```powershell
-# One-time: build the web assets + package
-npm run dist:win          # tries to produce a portable .exe (may hit Windows AV/perm issues)
-npm run dist:win-dir      # produces dist\win-unpacked — zip this folder and run the .exe inside from anywhere (highly portable, no install)
-
-# Or for Linux (from WSL or Linux box)
-npm run dist:linux
+npm run dist:win       # Windows portable executable
+npm run dist:win-dir   # Unpacked Windows application
+npm run dist:linux     # Linux AppImage; build on Linux
 ```
 
-**GitHub Actions builds (recommended when local packaging is flaky)**
+Web assets go to `dist/`. Desktop artifacts go to `release/`; those directories must remain separate. Packaging includes only the intended web assets and Electron entry points. Verify the Windows archive with:
 
-You can get a clean Windows portable build without fighting Defender/OneDrive/long paths on your machine:
-
-1. Push your code (or just use the web UI).
-2. Go to the **Actions** tab → **Build & Package** workflow.
-3. Click **Run workflow** (or push a tag like `v0.1.0` once you start versioning).
-4. Download the `NPI-Builder-Windows-Portable` artifact when it finishes.
-
-This runs on GitHub's clean `windows-latest` runner and uses the same `npm run dist:win` script. No code signing is configured yet (you will see a SmartScreen warning — click through or right-click → Properties → Unblock).
-
-**Known packaging note on this Windows machine**: `electron-builder` sometimes hits `EPERM` during internal Electron extraction (rename of temp dir). This is environmental (Defender, OneDrive, D: drive permissions, long paths). Workarounds that usually succeed:
-
-1. Move the `document-builder` folder to `C:\tmp\npi-builder` (short path, no cloud sync).
-2. Temporarily disable real-time protection or add an exclusion for the folder.
-3. Run PowerShell as Administrator for the `dist:*` command.
-4. Use `npm run dist:win-dir` (the unpacked dir is often more tolerant).
-5. After a successful unpack you can reuse the `dist\win-unpacked` or copy the produced portable exe.
-
-Once packaged you get a real no-install executable (or AppImage on Linux) that feels like a native app, has its own window, and can be distributed on USB drives, shared drives, etc.
-
-## Why this approach has high efficacy
-
-- The functional core (structured templates + excellent AI prompts + exports + context) was built extremely quickly on the same data model as the main NPI Guide.
-- Web tech (Vite + React + TS) = fast iteration, great DX, one codebase.
-- Electron gives cross-platform (Win + Linux) desktop with minimal extra code.
-- Future: the exact same frontend can be repackaged with Tauri (much smaller ~10-30 MB binaries, better security) once Rust is available on the machine.
-- Projects are just data + markdown files → extremely portable and version-control friendly.
-- AI is provider-agnostic (bring your own key or local model) — no vendor lock and works offline-ish with local LLMs.
-
-## Next (after this foundation)
-
-- Add "consistency check across docs" AI action (global).
-- Versioned snapshots inside a project.
-- Apply the exact same portable packaging pattern to the main Interactive NPI Guide and other modules of the Product Developer project.
-
-Run `npm run dev` inside this folder to start using the document builder right now.
-
-## Workflow Diagram
-
-Two high-quality assets were created to communicate the NPI Builder flow:
-
-- **[NPI-Builder-Workflow.html](NPI-Builder-Workflow.html)** — Fully interactive, self-contained dark-themed diagram (open directly in any browser). Click any stage for details. Matches the app's deep navy + electric cyan + retrowave violet aesthetic.
-- **NPI-Builder-Workflow.png** — Polished static 16:9 version ideal for READMEs, decks, Notion, marketing, or documentation.
-
-Both reflect the canonical 9-stage guided flow with emphasis on strong context propagation.
-
-## Mermaid Workflow (Copy/Paste Ready)
-
-Use this in Markdown environments that support Mermaid rendering:
-
-```mermaid
-flowchart LR
-  classDef phase0 fill:#DFF4FF,stroke:#0EA5E9,stroke-width:1.4px,color:#082F49;
-  classDef phase1 fill:#DCFCE7,stroke:#16A34A,stroke-width:1.4px,color:#052E16;
-  classDef phase2 fill:#F3E8FF,stroke:#9333EA,stroke-width:1.4px,color:#3B0764;
-  classDef phase3 fill:#FFEDD5,stroke:#EA580C,stroke-width:1.4px,color:#431407;
-  classDef phase4 fill:#FEE2E2,stroke:#DC2626,stroke-width:1.4px,color:#450A0A;
-  classDef gate fill:#E5E7EB,stroke:#6B7280,stroke-width:1.2px,color:#111827;
-  classDef support fill:#ECFEFF,stroke:#0891B2,stroke-width:1.2px,color:#083344;
-
-  Ctx[("Project Context\nAI Settings\nHistory")]:::support
-
-  subgraph Flow[Guided NPI Flow]
-    direction LR
-    PCD["1 PCD\nConcept"]:::phase0 --> G1{"Go"}:::gate
-    G1 --> PRD["2 PRD\nRequirements"]:::phase1 --> PDD["3 PDD\nDesign"]:::phase1 --> G2{"Go"}:::gate
-    G2 --> SDD["4 SDD"]:::phase2 --> HLD["5 HLD"]:::phase2 --> LLD["6 LLD"]:::phase2 --> G3{"Go"}:::gate
-    G3 --> RR["7 Risk"]:::phase3 --> LC["8 Launch"]:::phase3 --> G4{"Go"}:::gate
-    G4 --> PLR["9 Review"]:::phase4
-  end
-
-  Ctx -. context .-> PCD
-  Ctx -. context .-> PRD
-  Ctx -. context .-> PDD
-  Ctx -. context .-> SDD
-  Ctx -. context .-> HLD
-  Ctx -. context .-> LLD
-  Ctx -. context .-> RR
-  Ctx -. context .-> LC
-  Ctx -. context .-> PLR
-
-  PCD -. propagate .-> PRD
-  PRD -. propagate .-> PDD
-  PDD -. propagate .-> SDD
-  SDD -. propagate .-> HLD
-  HLD -. propagate .-> LLD
-  LLD -. propagate .-> RR
-  RR -. propagate .-> LC
-  LC -. propagate .-> PLR
-
-  G1 -. refine .-> PCD
-  G2 -. revise .-> PRD
-  G3 -. rework .-> SDD
-  G4 -. close gaps .-> RR
+```powershell
+node scripts/verify-package.cjs
 ```
 
-Source file: `NPI-Builder-Workflow.mmd`.
+For a clean hosted build, use GitHub Actions > **Build & Package** > **Run workflow**. CI runs the dependency audit, AI/security tests, production build, browser tests, and package inspection before uploading the portable executable. Release publishing is a separate step.
 
-## API keys and connection checks
+Desktop builds are currently unsigned. Verify the source and release checksum before running a download. If packaging encounters a permissions error, close the running app and try a short local checkout path or GitHub Actions. Do not disable security software or run builds as Administrator.
 
-Settings apply immediately. Editing a model or URL retains the current session key; selecting another provider clears the previous provider's key. The key suffix helps identify which key is selected, and Show keys lets you inspect what you entered.
+## Verification
 
-Use **AI settings > Providers / Test connection**, or **Edit AI settings**, to test. Test sends only a fixed greeting to the primary endpoint using the current model and key, even when project transfers are off. It never uses fallback. A successful result displays the endpoint, requested model, provider-reported model (when available), key suffix, and elapsed time. This confirms the endpoint accepted the request; a reported model ID is provider-supplied metadata, not independent model attestation.
+```powershell
+npm run test:ai
+npm run build
+npx playwright install chromium
+npm run test:ui
+npm audit
+```
 
-Enable **Allow ProdBot and AI tools to send messages and project context** to chat or generate documents. ProdBot replies show which connection responded, including any fallback. A fallback to another endpoint requires its own key. Loopback endpoints such as local Ollama may run without a key.
+Set `PLAYWRIGHT_PREVIEW=1` to test the production build and its Content Security Policy. On Windows, `PLAYWRIGHT_CHANNEL=msedge` uses installed Edge. Automated AI tests use synthetic credentials and a local mock server; they do not call a real AI account.
 
-Connection tests time out after 30 seconds; document/chat requests time out after 90 seconds per attempt. Browser providers must support cross-origin requests (CORS). Network errors show this possibility separately from explicit credential rejection. The app does not proxy requests or bypass browser security.
+The targeted `global-agent` override removes an obsolete vulnerable logging dependency from the Electron download tooling. Recheck the override when upgrading electron-builder. Dependency audits are a point-in-time check and should be repeated before each release.
 
-Key storage status reports confirmed saves or failures. In browser builds, enabling Remember my AI key saves the key locally without encryption; disabling it removes the saved copy. Desktop builds use OS secure storage when available.
+## Workflow
 
-### Verification
+See the [interactive workflow diagram](NPI-Builder-Workflow.html).
 
-- `npm run test:ai`: AI request and credential regression tests (Node 22.6+).
-- `npm run test:ui`: browser flows against a local mock AI server. Install Playwright Chromium with `npx playwright install chromium`, or set `PLAYWRIGHT_CHANNEL=msedge` to use installed Edge.
-- `npm run build`: TypeScript and production build.
+## Security
 
-These automated checks use synthetic credentials and do not verify access to a real provider account.
+See [SECURITY.md](SECURITY.md) for security boundaries and reporting guidance.

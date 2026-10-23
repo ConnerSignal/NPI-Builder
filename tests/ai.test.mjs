@@ -92,3 +92,20 @@ test('invalid URL and missing model fail before any request', async () => {
   assert.throws(()=>chatEndpoint('https://user:password@api.example/v1'), /without credentials/);
   await assert.rejects(testConnection({ ...config(), model:' ' }), /model ID/);
 });
+
+test('remote HTTP is rejected before credentials or project content leave the app', async () => {
+  globalThis.fetch = async () => assert.fail('must not send an insecure request');
+  for (const baseUrl of ['http://provider.example/v1', 'http://localhost.evil.example/v1', 'http://192.168.1.5/v1']) {
+    await assert.rejects(testConnection({ ...config(), baseUrl }), /require HTTPS/);
+  }
+  for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+    assert.equal(chatEndpoint(`http://${host}:11434/v1`), `http://${host}:11434/v1/chat/completions`);
+  }
+});
+
+test('fallback cannot send credentials over remote HTTP', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return new Response('busy', { status: 503 }); };
+  await assert.rejects(generateSection({ ...config(), fallbackEnabled: true, fallbackBaseUrl: 'http://fallback.example/v1', fallbackApiKey: 'fallback-secret', fallbackModel: 'fallback' }, req), /require HTTPS/);
+  assert.equal(calls, 1);
+});

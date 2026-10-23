@@ -1,16 +1,19 @@
 const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
+const { secureStorageAvailable, trustedSender, validateSecrets } = require('./security.cjs');
 
 const isDev = !app.isPackaged;
 const SECURE_STORE_FILE = 'npi-secure-store.json';
+const appUrl = isDev ? 'http://localhost:5173/' : pathToFileURL(path.join(app.getAppPath(), 'dist', 'index.html')).href;
 
 function getSecureStorePath() {
   return path.join(app.getPath('userData'), SECURE_STORE_FILE);
 }
 
 function readSecureSecrets() {
-  if (!safeStorage.isEncryptionAvailable()) return {};
+  if (!secureStorageAvailable(safeStorage)) return {};
 
   try {
     const filePath = getSecureStorePath();
@@ -34,7 +37,7 @@ function readSecureSecrets() {
 }
 
 function writeSecureSecrets(nextSecrets) {
-  if (!safeStorage.isEncryptionAvailable()) return false;
+  if (!secureStorageAvailable(safeStorage)) return false;
 
   try {
     const secrets = {};
@@ -46,7 +49,7 @@ function writeSecureSecrets(nextSecrets) {
       secrets.fallbackApiKey = safeStorage.encryptString(nextSecrets.fallbackApiKey).toString('base64');
     }
 
-    fs.writeFileSync(getSecureStorePath(), JSON.stringify(secrets, null, 2), 'utf8');
+    fs.writeFileSync(getSecureStorePath(), JSON.stringify(secrets, null, 2), { encoding: 'utf8', mode: 0o600 });
     return true;
   } catch (error) {
     console.warn('Failed to write secure secrets:', error);
@@ -75,10 +78,18 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
       preload: path.join(__dirname, 'preload.cjs'),
     },
     show: false,
   });
+  win.webContents.on('will-navigate', event => event.preventDefault());
+  win.webContents.on('will-redirect', event => event.preventDefault());
+  win.webContents.on('will-attach-webview', event => event.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  win.webContents.session.setPermissionCheckHandler(() => false);
 
   // Use the same NPI Builder artwork for the dev window, packaged window,
   // taskbar, executable, and desktop shortcut icon.
@@ -107,13 +118,19 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  ipcMain.handle('npi-secure-store:available', () => safeStorage.isEncryptionAvailable());
-  ipcMain.handle('npi-secure-store:get', () => readSecureSecrets());
-  ipcMain.handle('npi-secure-store:set', (_event, partialSecrets) => {
-    const merged = { ...readSecureSecrets(), ...partialSecrets };
+  function handle(channel, handler) {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!trustedSender(event, BrowserWindow.getAllWindows(), appUrl)) throw new Error('Untrusted IPC sender');
+      return handler(...args);
+    });
+  }
+  handle('npi-secure-store:available', () => secureStorageAvailable(safeStorage));
+  handle('npi-secure-store:get', () => readSecureSecrets());
+  handle('npi-secure-store:set', partialSecrets => {
+    const merged = { ...readSecureSecrets(), ...validateSecrets(partialSecrets) };
     return writeSecureSecrets(merged);
   });
-  ipcMain.handle('npi-secure-store:clear', () => clearSecureSecrets());
+  handle('npi-secure-store:clear', () => clearSecureSecrets());
 
   createWindow();
   app.on('activate', () => {
