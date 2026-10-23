@@ -1,4 +1,7 @@
-﻿# NPI Builder
+
+ <img width="1800" height="1600" alt="image" src="https://github.com/user-attachments/assets/8960c749-f311-440e-8e1f-279d0c7a81e5" />
+ 
+ # NPI Builder
 
 Build New Product Introduction documents locally, with optional AI assistance using your own provider and API key.
 
@@ -66,3 +69,4 @@ See the [interactive workflow diagram](NPI-Builder-Workflow.html).
 ## Security
 
 See [SECURITY.md](SECURITY.md) for security boundaries and reporting guidance.
+
