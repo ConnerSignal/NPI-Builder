@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run test:ai
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+
+      - name: Build Windows releases
+        run: npm run dist:win
+
+      - name: Build source zip
+        run: |
+          7z a -tzip -mx9 "release/NPI-Builder-${{ github.ref_name }}-source.zip" . -xr!".git" -xr!"node_modules" -xr!"dist" -xr!"release"
+          7z a -tzip -mx9 "release/NPI-Builder-${{ github.ref_name }}-source.zip" LICENSE CONTRIBUTING.md CHANGELOG.md
+
+      - name: Compute SHA-256 checksums
+        run: |
+          certutil -hashfile "release/NPI-Document-Builder-Portable-${{ github.ref_name }}.exe" SHA256 > "release/SHA256SUMS-${{ github.ref_name }}.txt"
+          certutil -hashfile "release/NPI-Document-Builder-${{ github.ref_name }}-x64.ns" SHA256 >> "release/SHA256SUMS-${{ github.ref_name }}.txt"
+          certutil -hashfile "release/NPI-Builder-${{ github.ref_name }}-source.zip" SHA256 >> "release/SHA256SUMS-${{ github.ref_name }}.txt"
+
+      - name: Upload releases
+        uses: actions/upload-artifact@v4
+        with:
+          name: NPI-Builder-Windows-${{ github.ref_name }}
+          path: release/*.exe,release/*.ns,release/*.zip,release/SHA256SUMS-*.txt
+
+      - name: Cleanup release folder (keep only required files)
+        run: |
+          cd release
+          rm -f builder-*.yml builder-*.yaml
+          ls -lah
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download Windows releases
+        uses: actions/download-artifact@v4
+        with:
+          name: NPI-Builder-Windows-${{ github.ref_name }}
+          path: release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum NPI-Document-Builder-Portable-${{ github.ref_name }}.exe NPI-Document-Builder-${{ github.ref_name }}-x64.ns NPI-Builder-${{ github.ref name }}-source.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Prepare release body
+        id: release_notes
+        run: |
+          RELEASE_BODY=$(cat docs/releases/${{ github.ref_name }}.md)
+          BODY="${RELEASE_BODY//'%'/'%25'}"  # Escape %
+          BODY="${BODY//$'\n'/'%0A'}"        # Escape newlines
+          BODY="${BODY//$'\r'/'%0D'}"        # Escape carriage returns
+          echo "body=$BODY" >> $GITHUB_OUTPUT
+          echo "Release body prepared ($(wc -c < docs/releases/${{ github.ref_name }}.md) chars)"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "NPI Builder ${{ github.ref_name }}"
+          body: ${{ steps.release_notes.outputs.body }}
+          prerelease: true
+          files: |
+            release/NPI-Document-Builder-Portable-${{ github.ref_name }}.exe
+            release/NPI-Document-Builder-${{ github.ref name }}-x64.ns
+            release/NPI-Builder-${{ github.ref name }}-source.zip
+            release/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
