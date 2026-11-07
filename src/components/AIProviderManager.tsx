@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AI_PROVIDER_PRESETS,
   allowsKeyless,
   keyLabel,
+  listAvailableModels,
   responseSummary,
   type AIResponse,
   addUserPreset,
@@ -30,10 +31,42 @@ interface Props {
 const LAB: React.CSSProperties = { fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 };
 
 const EMPTY_DRAFT = { label: '', baseUrl: '', models: '', apiKeyPlaceholder: '' };
+const DISCOVERED_MODELS_CACHE_KEY = 'npi-ai-discovered-models';
 
 /** Split a comma or newline separated model list into a clean array. */
 function parseModels(raw: string): string[] {
   return raw.split(/[,\n]/).map(m => m.trim()).filter(Boolean);
+}
+
+function isLoopbackUrl(value: string): boolean {
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function loadCachedDiscoveredModels(cacheKey: string): string[] {
+  try {
+    const raw = localStorage.getItem(DISCOVERED_MODELS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const value = parsed[cacheKey];
+    return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedDiscoveredModels(cacheKey: string, models: string[]) {
+  try {
+    const raw = localStorage.getItem(DISCOVERED_MODELS_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    parsed[cacheKey] = models;
+    localStorage.setItem(DISCOVERED_MODELS_CACHE_KEY, JSON.stringify(parsed));
+  } catch {
+    // Ignore cache failures; live model discovery can still work.
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -153,6 +186,85 @@ export function AIProviderManager({ aiConfig, saveAIConfigLocal, onTest, testBus
 
   const userPresets = presets.filter(p => !p.builtin);
   const hasKey = Boolean(aiConfig.apiKey.trim());
+  const [primaryModels, setPrimaryModels] = useState<string[]>([]);
+  const [primaryModelsBusy, setPrimaryModelsBusy] = useState(false);
+  const [primaryModelsError, setPrimaryModelsError] = useState<string | null>(null);
+  const [fallbackModels, setFallbackModels] = useState<string[]>([]);
+  const [fallbackModelsBusy, setFallbackModelsBusy] = useState(false);
+  const [fallbackModelsError, setFallbackModelsError] = useState<string | null>(null);
+  const [primaryAutoRefreshedKey, setPrimaryAutoRefreshedKey] = useState<string | null>(null);
+  const [fallbackAutoRefreshedKey, setFallbackAutoRefreshedKey] = useState<string | null>(null);
+
+  const primaryPresetModels = presets.find(p => p.id === aiConfig.providerPresetId)?.models ?? [];
+  const fallbackPresetModels = presets.find(p => p.id === aiConfig.fallbackPresetId)?.models ?? [];
+  const mergedPrimaryModels = useMemo(
+    () => [...new Set([...primaryPresetModels, ...primaryModels])],
+    [primaryPresetModels, primaryModels]
+  );
+  const mergedFallbackModels = useMemo(
+    () => [...new Set([...fallbackPresetModels, ...fallbackModels])],
+    [fallbackPresetModels, fallbackModels]
+  );
+  const primaryDiscoveryEnabled = isLoopbackUrl(aiConfig.baseUrl);
+  const fallbackDiscoveryEnabled = aiConfig.fallbackEnabled && isLoopbackUrl(aiConfig.fallbackBaseUrl || aiConfig.baseUrl);
+  const primaryCacheKey = `primary:${aiConfig.baseUrl.trim().toLowerCase()}`;
+  const fallbackCacheKey = `fallback:${(aiConfig.fallbackBaseUrl || aiConfig.baseUrl).trim().toLowerCase()}`;
+
+  useEffect(() => {
+    setPrimaryModels(loadCachedDiscoveredModels(primaryCacheKey));
+  }, [primaryCacheKey]);
+
+  useEffect(() => {
+    setFallbackModels(loadCachedDiscoveredModels(fallbackCacheKey));
+  }, [fallbackCacheKey]);
+
+  useEffect(() => {
+    if (!primaryDiscoveryEnabled) return;
+    if (primaryAutoRefreshedKey === primaryCacheKey) return;
+    if (primaryModelsBusy) return;
+    setPrimaryAutoRefreshedKey(primaryCacheKey);
+    void refreshPrimaryModels();
+  }, [primaryDiscoveryEnabled, primaryAutoRefreshedKey, primaryCacheKey, primaryModelsBusy]);
+
+  useEffect(() => {
+    if (!fallbackDiscoveryEnabled) return;
+    if (fallbackAutoRefreshedKey === fallbackCacheKey) return;
+    if (fallbackModelsBusy) return;
+    setFallbackAutoRefreshedKey(fallbackCacheKey);
+    void refreshFallbackModels();
+  }, [fallbackDiscoveryEnabled, fallbackAutoRefreshedKey, fallbackCacheKey, fallbackModelsBusy]);
+
+  async function refreshPrimaryModels() {
+    setPrimaryModelsBusy(true);
+    setPrimaryModelsError(null);
+    try {
+      const models = await listAvailableModels({ baseUrl: aiConfig.baseUrl, apiKey: aiConfig.apiKey });
+      setPrimaryModels(models);
+      saveCachedDiscoveredModels(primaryCacheKey, models);
+      if (!aiConfig.model.trim() && models[0]) saveAIConfigLocal({ model: models[0] });
+    } catch (error) {
+      setPrimaryModelsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPrimaryModelsBusy(false);
+    }
+  }
+
+  async function refreshFallbackModels() {
+    const baseUrl = aiConfig.fallbackBaseUrl || aiConfig.baseUrl;
+    const apiKey = aiConfig.fallbackApiKey || aiConfig.apiKey;
+    setFallbackModelsBusy(true);
+    setFallbackModelsError(null);
+    try {
+      const models = await listAvailableModels({ baseUrl, apiKey });
+      setFallbackModels(models);
+      saveCachedDiscoveredModels(fallbackCacheKey, models);
+      if (!aiConfig.fallbackModel?.trim() && models[0]) saveAIConfigLocal({ fallbackModel: models[0] });
+    } catch (error) {
+      setFallbackModelsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setFallbackModelsBusy(false);
+    }
+  }
 
   function handleDelete(preset: AIProviderPreset) {
     if (!confirm(`Delete the "${preset.label}" provider?`)) return;
@@ -189,6 +301,29 @@ export function AIProviderManager({ aiConfig, saveAIConfigLocal, onTest, testBus
 
           <div>
             <label style={LAB}>Model</label>
+            {primaryDiscoveryEnabled && (
+              <div className="row" style={{ marginBottom: 6 }}>
+                <button className="btn small" onClick={refreshPrimaryModels} disabled={primaryModelsBusy}>
+                  {primaryModelsBusy ? 'Loading models…' : 'Refresh local models'}
+                </button>
+                {!primaryModelsBusy && primaryModels.length > 0 && (
+                  <span className="stat">{primaryModels.length} discovered</span>
+                )}
+              </div>
+            )}
+            {primaryDiscoveryEnabled && mergedPrimaryModels.length > 0 && (
+              <select
+                className="input"
+                value={aiConfig.model}
+                onChange={e => saveAIConfigLocal({ model: e.target.value })}
+                aria-label="Primary local model picker"
+                style={{ marginBottom: 6 }}
+              >
+                {mergedPrimaryModels.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            )}
             <input
               className="input"
               list="npi-model-options"
@@ -197,10 +332,11 @@ export function AIProviderManager({ aiConfig, saveAIConfigLocal, onTest, testBus
               placeholder="gpt-4.1-mini"
             />
             <datalist id="npi-model-options">
-              {(presets.find(p => p.id === aiConfig.providerPresetId)?.models ?? []).map(m => (
+              {mergedPrimaryModels.map(m => (
                 <option key={m} value={m} />
               ))}
             </datalist>
+            {primaryModelsError && <p className="form-error" role="alert">{primaryModelsError}</p>}
           </div>
 
           <div className="span-2">
@@ -269,6 +405,29 @@ export function AIProviderManager({ aiConfig, saveAIConfigLocal, onTest, testBus
 
               <div>
                 <label style={LAB}>Model</label>
+                {fallbackDiscoveryEnabled && (
+                  <div className="row" style={{ marginBottom: 6 }}>
+                    <button className="btn small" onClick={refreshFallbackModels} disabled={fallbackModelsBusy}>
+                      {fallbackModelsBusy ? 'Loading models…' : 'Refresh local models'}
+                    </button>
+                    {!fallbackModelsBusy && fallbackModels.length > 0 && (
+                      <span className="stat">{fallbackModels.length} discovered</span>
+                    )}
+                  </div>
+                )}
+                {fallbackDiscoveryEnabled && mergedFallbackModels.length > 0 && (
+                  <select
+                    className="input"
+                    value={aiConfig.fallbackModel || ''}
+                    onChange={e => saveAIConfigLocal({ fallbackModel: e.target.value })}
+                    aria-label="Fallback local model picker"
+                    style={{ marginBottom: 6 }}
+                  >
+                    {mergedFallbackModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                )}
                 <input
                   className="input"
                   list="npi-fallback-model-options"
@@ -277,10 +436,11 @@ export function AIProviderManager({ aiConfig, saveAIConfigLocal, onTest, testBus
                   placeholder="gpt-5.5"
                 />
                 <datalist id="npi-fallback-model-options">
-                  {(presets.find(p => p.id === aiConfig.fallbackPresetId)?.models ?? []).map(m => (
+                  {mergedFallbackModels.map(m => (
                     <option key={m} value={m} />
                   ))}
                 </datalist>
+                {fallbackModelsError && <p className="form-error" role="alert">{fallbackModelsError}</p>}
               </div>
 
               <div className="span-2">

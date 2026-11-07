@@ -11,6 +11,11 @@ test.beforeAll(async () => {
     res.setHeader('Access-Control-Allow-Origin','*');
     res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization');
     if(req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if(req.method === 'GET') {
+      res.setHeader('Content-Type','application/json');
+      res.end(JSON.stringify({ data: [{ id: 'discovered-test-model' }] }));
+      return;
+    }
     let raw='';
     req.on('data',chunk=>{ raw+=chunk; });
     req.on('end',()=>{
@@ -22,15 +27,19 @@ test.beforeAll(async () => {
     });
   });
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  server.unref();
   endpoint='http://127.0.0.1:'+(server.address() as AddressInfo).port;
 });
-test.afterAll(async ()=>{ server.closeAllConnections(); await new Promise<void>(resolve=>server.close(()=>resolve())); });
+test.afterAll(()=>{
+  server.close();
+  server.closeAllConnections();
+});
 test.beforeEach(async ({page})=>{ requests=[]; await page.goto('/'); });
 
 async function settings(page: Page, path='/v1', key='  test-key-12345678  ') {
   await page.getByRole('button',{name:'Edit AI settings',exact:true}).click();
   const primary=page.locator('.provider-block').first();
-  await primary.locator('select').selectOption('custom');
+  await primary.locator('select').first().selectOption('custom');
   await primary.getByPlaceholder('https://api.openai.com/v1').fill(endpoint+path);
   await page.getByRole('textbox',{name:'Primary API key'}).fill(key);
   await primary.getByPlaceholder('gpt-4.1-mini').fill('chosen-model');
@@ -106,7 +115,7 @@ test('keyless localhost test works and changing provider clears old credentials'
   await expect(page.getByText('Connection verified',{exact:true})).toBeVisible();
   expect(requests[0].authorization).toBeUndefined();
   await page.getByRole('textbox',{name:'Primary API key'}).fill('other-provider-secret');
-  await primary.locator('select').selectOption('openai');
+  await primary.locator('select').first().selectOption('openai');
   await expect(page.getByRole('textbox',{name:'Primary API key'})).toBeEmpty();
   await expect(page.getByRole('button',{name:'Test connection',exact:true})).toBeDisabled();
   await expect(page.getByText('Connection verified',{exact:true})).toHaveCount(0);
@@ -141,13 +150,21 @@ test('a hanging test times out and can be retried',async({page})=>{
   await settings(page);
   await page.clock.install();
   let started!:()=>void;
+  let release!:()=>void;
   const ready=new Promise<void>(resolve=>{started=resolve;});
-  await page.route(endpoint+'/**',()=>{started();});
+  const hold=new Promise<void>(resolve=>{release=resolve;});
+  await page.route(endpoint+'/v1/chat/completions',async route=>{
+    started();
+    await hold;
+    await route.abort('timedout');
+  });
   await page.getByRole('button',{name:'Test connection',exact:true}).click();
   await ready;
   await page.clock.fastForward(31_000);
   await expect(page.getByRole('alert')).toContainText('timed out after 30 seconds');
   await expect(page.getByRole('button',{name:'Test connection',exact:true})).toBeEnabled();
+  release();
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 test('remembering a browser key restores it and clearing it forgets it',async({page})=>{

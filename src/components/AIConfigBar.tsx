@@ -7,6 +7,8 @@ import {
   type AIConfig,
 } from '../lib/ai';
 
+const DISCOVERED_MODELS_CACHE_KEY = 'npi-ai-discovered-models';
+
 interface Props {
   aiConfig: AIConfig;
   saveAIConfigLocal: (p: Partial<AIConfig>) => void;
@@ -42,6 +44,7 @@ export function AIConfigBar({ aiConfig, saveAIConfigLocal, onOpenProviderManager
 
   // Live preset list — updates instantly when a custom provider is added.
   const presets = usePresets();
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
 
   // Close the inline editor on outside click so it never covers content the user needs.
   useEffect(() => {
@@ -63,6 +66,21 @@ export function AIConfigBar({ aiConfig, saveAIConfigLocal, onOpenProviderManager
   const status = resolveStatus(aiConfig, aiError, transfersAllowed, verified);
   const meta = STATUS_META[status];
   const activePreset = presets.find(p => p.id === aiConfig.providerPresetId);
+  const modelCacheKey = `primary:${aiConfig.baseUrl.trim().toLowerCase()}`;
+  const modelOptions = [...new Set([...(activePreset?.models ?? []), ...discoveredModels])];
+  const isLocalProvider = allowsKeyless(aiConfig);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DISCOVERED_MODELS_CACHE_KEY);
+      if (!raw) return setDiscoveredModels([]);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const value = parsed[modelCacheKey];
+      setDiscoveredModels(Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0) : []);
+    } catch {
+      setDiscoveredModels([]);
+    }
+  }, [modelCacheKey]);
 
   return (
     <div className="ai-bar" ref={wrapperRef}>
@@ -87,20 +105,33 @@ export function AIConfigBar({ aiConfig, saveAIConfigLocal, onOpenProviderManager
         </select>
 
         {/* Model switch */}
-        <input
-          className="input ai-bar-model"
-          list="npi-bar-models"
-          value={aiConfig.model}
-          onChange={e => saveAIConfigLocal({ model: e.target.value })}
-          aria-label="Model"
-          placeholder="model"
-          spellCheck={false}
-          autoCapitalize="none"
-          autoCorrect="off"
-        />
-        <datalist id="npi-bar-models">
-          {(activePreset?.models ?? []).map(m => <option key={m} value={m} />)}
-        </datalist>
+        {isLocalProvider && discoveredModels.length > 0 ? (
+          <select
+            className="input ai-bar-model"
+            value={aiConfig.model}
+            onChange={e => saveAIConfigLocal({ model: e.target.value })}
+            aria-label="Model"
+          >
+            {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        ) : (
+          <>
+            <input
+              className="input ai-bar-model"
+              list="npi-bar-models"
+              value={aiConfig.model}
+              onChange={e => saveAIConfigLocal({ model: e.target.value })}
+              aria-label="Model"
+              placeholder="model"
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
+            />
+            <datalist id="npi-bar-models">
+              {modelOptions.map(m => <option key={m} value={m} />)}
+            </datalist>
+          </>
+        )}
 
         {/* Key state — click to open the editor */}
         <button

@@ -6,3 +6,7 @@ contextBridge.exposeInMainWorld('npiSecureStore', {
   setSecrets: (partialSecrets) => ipcRenderer.invoke('npi-secure-store:set', partialSecrets),
   clearSecrets: () => ipcRenderer.invoke('npi-secure-store:clear'),
 });
+
+contextBridge.exposeInMainWorld('npiNetwork', {
+  request: (request) => ipcRenderer.invoke('npi-network:request', request),
+});

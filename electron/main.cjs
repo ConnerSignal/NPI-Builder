@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
-const { secureStorageAvailable, trustedSender, validateSecrets } = require('./security.cjs');
+const { secureStorageAvailable, trustedSender, validateSecrets, validateNetworkRequest } = require('./security.cjs');
 
 const isDev = !app.isPackaged;
 const SECURE_STORE_FILE = 'npi-secure-store.json';
@@ -131,6 +131,24 @@ app.whenReady().then(() => {
     return writeSecureSecrets(merged);
   });
   handle('npi-secure-store:clear', () => clearSecureSecrets());
+  handle('npi-network:request', async request => {
+    const safeRequest = validateNetworkRequest(request);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), safeRequest.timeoutMs);
+    try {
+      const res = await fetch(safeRequest.url, {
+        method: safeRequest.method,
+        headers: safeRequest.headers,
+        body: safeRequest.body,
+        redirect: 'error',
+        signal: controller.signal,
+      });
+      const body = await res.text();
+      return { ok: res.ok, status: res.status, body };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 
   createWindow();
   app.on('activate', () => {

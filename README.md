@@ -26,6 +26,9 @@ Remote endpoints require HTTPS. HTTP is accepted only for localhost, 127.0.0.1, 
 
 Use **Test connection** to verify the primary endpoint, model, and key. This sends only a fixed greeting, even when project transfers are disabled; it does not use fallback or project content. Tests time out after 30 seconds; generation requests after 90 seconds per attempt.
 
+For local providers (such as Ollama), use **Refresh local models** in AI Provider Settings to pull the model list from your machine and pick from autocomplete instead of typing IDs manually.
+In Electron builds, AI network requests run through the main process so local endpoints are not blocked by renderer CORS policy.
+
 Browser keys stay in memory unless you enable **Remember my AI key**. Remembered browser keys are stored without encryption. Desktop keys use the operating system's secure storage when available; unsupported Linux key stores fall back to session-only keys. OS storage protects data at rest, not against malicious software running as you or a compromised renderer.
 
 Project exports contain your document content, metadata, and, for project JSON/ZIP, saved history. Review exports before sharing them. No filled project examples are included in the source or application.

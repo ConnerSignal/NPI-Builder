@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { secureStorageAvailable, trustedSender, validateSecrets } = require('../electron/security.cjs');
+const { secureStorageAvailable, trustedSender, validateSecrets, validateNetworkRequest } = require('../electron/security.cjs');
 
 test('only the app main frame in a known window may access secrets', () => {
   const expected = 'file:///application/dist/index.html';
@@ -31,4 +31,26 @@ test('secret IPC rejects unexpected fields, types and excessive input', () => {
     assert.throws(() => validateSecrets(value), /Invalid secrets/);
   }
   assert.deepEqual(validateSecrets({ apiKey: 'synthetic-key', fallbackApiKey: '' }), { apiKey: 'synthetic-key', fallbackApiKey: '' });
+});
+
+test('network IPC validates safe request shape and endpoint constraints', () => {
+  const ok = validateNetworkRequest({
+    url: 'http://localhost:11434/v1/models',
+    method: 'GET',
+    timeoutMs: 15000,
+    headers: { Accept: 'application/json' },
+  });
+  assert.equal(ok.method, 'GET');
+  assert.equal(ok.url, 'http://localhost:11434/v1/models');
+  assert.deepEqual(ok.headers, { accept: 'application/json' });
+
+  for (const value of [
+    { url: 'http://provider.example/v1/models', method: 'GET', timeoutMs: 15000 },
+    { url: 'https://api.example.com/v1/models?x=1', method: 'GET', timeoutMs: 15000 },
+    { url: 'https://api.example.com/v1/chat/completions', method: 'PUT', timeoutMs: 15000 },
+    { url: 'https://api.example.com/v1/chat/completions', method: 'POST', timeoutMs: 300000 },
+    { url: 'https://api.example.com/v1/chat/completions', method: 'POST', timeoutMs: 15000, headers: { Cookie: 'x=1' } },
+  ]) {
+    assert.throws(() => validateNetworkRequest(value), /Invalid|Remote HTTP|not allowed|URL must not include/);
+  }
 });

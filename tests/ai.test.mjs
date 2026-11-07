@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { saveAIConfig, loadAIConfig, getDefaultAIConfig, generateSection, testConnection, chatEndpoint, applyPrimaryPreset } from '../src/lib/ai.ts';
+import { saveAIConfig, loadAIConfig, getDefaultAIConfig, generateSection, testConnection, chatEndpoint, applyPrimaryPreset, listAvailableModels } from '../src/lib/ai.ts';
 const storage = new Map();
 globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key,value) };
 const originalFetch = globalThis.fetch;
@@ -108,4 +108,31 @@ test('fallback cannot send credentials over remote HTTP', async () => {
   globalThis.fetch = async () => { calls++; return new Response('busy', { status: 503 }); };
   await assert.rejects(generateSection({ ...config(), fallbackEnabled: true, fallbackBaseUrl: 'http://fallback.example/v1', fallbackApiKey: 'fallback-secret', fallbackModel: 'fallback' }, req), /require HTTPS/);
   assert.equal(calls, 1);
+});
+
+test('model discovery reads OpenAI-compatible /models', async () => {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, 'http://localhost:11434/v1/models');
+    assert.equal(options.method, 'GET');
+    assert.equal(options.headers.Authorization, undefined);
+    return new Response(JSON.stringify({ data: [{ id: 'llama3.2:latest' }, { id: 'qwen3-coder:30b' }] }));
+  };
+  const models = await listAvailableModels({ baseUrl: 'http://localhost:11434/v1', apiKey: '' });
+  assert.deepEqual(models, ['llama3.2:latest', 'qwen3-coder:30b']);
+});
+
+test('model discovery falls back to Ollama /api/tags', async () => {
+  let calls = 0;
+  globalThis.fetch = async (url, options) => {
+    calls++;
+    assert.equal(options.method, 'GET');
+    if (calls === 1) {
+      assert.equal(url, 'http://localhost:11434/v1/models');
+      return new Response('not found', { status: 404 });
+    }
+    assert.equal(url, 'http://localhost:11434/api/tags');
+    return new Response(JSON.stringify({ models: [{ name: 'mistral' }, { name: 'qwen2.5-coder:7b' }] }));
+  };
+  const models = await listAvailableModels({ baseUrl: 'http://localhost:11434/v1', apiKey: '' });
+  assert.deepEqual(models, ['mistral', 'qwen2.5-coder:7b']);
 });

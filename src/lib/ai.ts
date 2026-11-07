@@ -286,6 +286,62 @@ export interface AIResponse {
   elapsedMs: number;
 }
 
+type HttpMethod = 'GET' | 'POST';
+type HttpHeaders = Record<string, string>;
+
+interface HttpRequest {
+  url: string;
+  method: HttpMethod;
+  headers?: HttpHeaders;
+  body?: string;
+  timeoutMs: number;
+}
+
+interface HttpResult {
+  ok: boolean;
+  status: number;
+  body: string;
+}
+
+interface NetworkBridge {
+  request: (request: HttpRequest) => Promise<HttpResult>;
+}
+
+function getNetworkBridge(): NetworkBridge | null {
+  if (typeof window === 'undefined') return null;
+  const maybeBridge = (window as unknown as { npiNetwork?: unknown }).npiNetwork;
+  if (!maybeBridge || typeof maybeBridge !== 'object') return null;
+  const request = (maybeBridge as { request?: unknown }).request;
+  return typeof request === 'function' ? { request: request as NetworkBridge['request'] } : null;
+}
+
+async function httpRequest(request: HttpRequest): Promise<HttpResult> {
+  const bridge = getNetworkBridge();
+  if (bridge) {
+    try {
+      return await bridge.request(request);
+    } catch (error) {
+      throw new TypeError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), request.timeoutMs);
+  try {
+    const res = await fetch(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      signal: controller.signal,
+      redirect: 'error',
+    });
+    const body = await res.text();
+    return { ok: res.ok, status: res.status, body };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function keyLabel(key?: string): string {
   const trimmed = key?.trim();
   return trimmed ? (trimmed.length > 8 ? 'Key ending ' + trimmed.slice(-4) : 'Key entered') : 'No key';
@@ -339,6 +395,95 @@ export function testConnection(config: AIConfig): Promise<AIResponse> {
   }, false, 30_000);
 }
 
+function parseProviderBaseUrl(baseUrl: string): URL {
+  let url: URL;
+  try { url = new URL(baseUrl.trim()); }
+  catch { throw new Error('Enter a valid provider base URL, such as https://api.example.com/v1.'); }
+  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error('Use an HTTP(S) base URL without credentials, query parameters, or a fragment.');
+  }
+  if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+    throw new Error('Remote AI endpoints require HTTPS. HTTP is allowed only for local loopback endpoints.');
+  }
+  url.pathname = url.pathname.replace(/\/+$/, '');
+  return url;
+}
+
+function toApiModelsEndpoint(baseUrl: string): string {
+  const url = parseProviderBaseUrl(baseUrl);
+  if (!url.pathname.endsWith('/models')) url.pathname += '/models';
+  return url.toString();
+}
+
+function toOllamaTagsEndpoint(baseUrl: string): string {
+  const url = parseProviderBaseUrl(baseUrl);
+  const basePath = url.pathname.replace(/\/v1$/i, '');
+  url.pathname = `${basePath}/api/tags`.replace(/\/{2,}/g, '/');
+  return url.toString();
+}
+
+function extractModelIds(payload: unknown): string[] {
+  const names: string[] = [];
+
+  if (payload && typeof payload === 'object') {
+    const openAiData = (payload as { data?: unknown }).data;
+    if (Array.isArray(openAiData)) {
+      for (const entry of openAiData) {
+        const id = typeof entry === 'object' && entry ? (entry as { id?: unknown }).id : undefined;
+        if (typeof id === 'string' && id.trim()) names.push(id.trim());
+      }
+    }
+
+    const ollamaModels = (payload as { models?: unknown }).models;
+    if (Array.isArray(ollamaModels)) {
+      for (const entry of ollamaModels) {
+        if (!entry || typeof entry !== 'object') continue;
+        const model = (entry as { name?: unknown; model?: unknown }).name ?? (entry as { model?: unknown }).model;
+        if (typeof model === 'string' && model.trim()) names.push(model.trim());
+      }
+    }
+  }
+
+  return [...new Set(names)];
+}
+
+export async function listAvailableModels(config: Pick<AIConfig, 'baseUrl' | 'apiKey'>): Promise<string[]> {
+  const primaryEndpoint = toApiModelsEndpoint(config.baseUrl);
+  const endpoints = [primaryEndpoint];
+  const parsed = parseProviderBaseUrl(config.baseUrl);
+  if (['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
+    const ollamaEndpoint = toOllamaTagsEndpoint(config.baseUrl);
+    if (ollamaEndpoint !== primaryEndpoint) endpoints.push(ollamaEndpoint);
+  }
+
+  const apiKey = config.apiKey.trim();
+  const headers: HttpHeaders = {
+    Accept: 'application/json',
+    ...(apiKey ? { Authorization: 'Bearer ' + apiKey } : {}),
+  };
+
+  let lastError: string | null = null;
+  for (const endpoint of endpoints) {
+    try {
+      const res = await httpRequest({ url: endpoint, method: 'GET', headers, timeoutMs: 15_000 });
+      if (!res.ok) {
+        lastError = `(${res.status}) ${endpoint}`;
+        continue;
+      }
+      const payload = JSON.parse(res.body);
+      const models = extractModelIds(payload);
+      if (models.length) return models;
+      lastError = `No model IDs returned by ${endpoint}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  throw new Error(lastError
+    ? `Could not load models automatically. ${lastError}`
+    : 'Could not load models automatically from this endpoint.');
+}
+
 async function requestChat(config: AIConfig, body: Record<string, unknown>, allowFallback: boolean, timeoutMs = 90_000): Promise<AIResponse> {
   validateAIConfig(config);
   try {
@@ -366,22 +511,20 @@ async function requestChat(config: AIConfig, body: Record<string, unknown>, allo
 async function runChatRequest(config: AIConfig, body: Record<string, unknown>, usedFallback: boolean, timeoutMs: number): Promise<AIResponse> {
   const endpoint = chatEndpoint(config.baseUrl);
   const apiKey = config.apiKey.trim();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const started = Date.now();
   try {
-    const res = await fetch(endpoint, {
+    const res = await httpRequest({
+      url: endpoint,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(apiKey ? { Authorization: 'Bearer ' + apiKey } : {}),
       },
       body: JSON.stringify({ ...body, model: config.model.trim() }),
-      signal: controller.signal,
-      redirect: 'error',
+      timeoutMs,
     });
     if (!res.ok) {
-      let detail = await res.text().catch(() => '');
+      let detail = res.body;
       for (const secret of [config.apiKey, config.fallbackApiKey]) {
         if (secret?.trim()) detail = detail.split(secret.trim()).join('[redacted]');
       }
@@ -397,7 +540,7 @@ async function runChatRequest(config: AIConfig, body: Record<string, unknown>, u
       error.bodyText = detail;
       throw error;
     }
-    const data = await res.json().catch(() => { throw new Error('The endpoint returned invalid JSON. Check that this is an OpenAI-compatible chat endpoint.'); });
+    const data = JSON.parse(res.body);
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== 'string' || !content.trim()) throw new Error('The provider returned no text. Check model support or try another model.');
     return {
@@ -406,11 +549,10 @@ async function runChatRequest(config: AIConfig, body: Record<string, unknown>, u
       keyLabel: keyLabel(apiKey), usedFallback, elapsedMs: Date.now() - started,
     };
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('AI request timed out after ' + timeoutMs / 1000 + ' seconds at ' + endpoint + '. Check the endpoint and retry.');
+    if (error instanceof Error && error.name === 'AbortError') throw new Error('AI request timed out after ' + timeoutMs / 1000 + ' seconds at ' + endpoint + '. Check the endpoint and retry.');
+    if (error instanceof SyntaxError) throw new Error('The endpoint returned invalid JSON. Check that this is an OpenAI-compatible chat endpoint.');
     if (error instanceof TypeError) throw new Error('Could not reach ' + endpoint + '. Check the URL, internet connection, and whether this provider allows browser requests (CORS). A browser network failure does not verify or reject your key.');
     throw error;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
