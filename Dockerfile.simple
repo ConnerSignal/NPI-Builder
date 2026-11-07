@@ -1,0 +1,16 @@
+# Alternate filename retained for compatibility with older build commands.
+FROM electronuserland/builder:22-wine
+
+# Set working directory
+WORKDIR /project
+
+# Copy package files
+COPY package*.json ./
+
+# Install Node.js dependencies
+RUN npm ci
+
+# Copy application source code
+COPY . .
+
+CMD ["npm", "run", "dist:win"]

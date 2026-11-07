@@ -1,0 +1,6 @@
+services:
+  npi-builder:
+    build: .
+    image: npi-builder
+    volumes:
+      - ./release:/project/release
