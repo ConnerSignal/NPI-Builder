@@ -7,6 +7,10 @@ Build New Product Introduction documents locally, with optional AI assistance us
 
 The guided workflow covers PCD, PRD, PDD, SDD, HLD, LLD, Risk Register, Launch Checklist, and Post-Launch Review. Edit sections, propagate context between documents, save checkpoints, and export PDF, DOCX, Markdown, or a project ZIP.
 
+![NPI Builder — guided document workspace](docs/images/npi-builder-app.png)
+
+*The guided workspace: document navigation and AI status on the left, the active PCD with section-level AI actions in the center, and project context, privacy controls, progress, and export options on the right.*
+
 ## Quick start
 
 Requires Node.js 22.12 or later and npm.
@@ -64,10 +68,6 @@ npm audit
 Set `PLAYWRIGHT_PREVIEW=1` to test the production build and its Content Security Policy. On Windows, `PLAYWRIGHT_CHANNEL=msedge` uses installed Edge. Automated AI tests use synthetic credentials and a local mock server; they do not call a real AI account.
 
 The targeted `global-agent` override removes an obsolete vulnerable logging dependency from the Electron download tooling. Recheck the override when upgrading electron-builder. Dependency audits are a point-in-time check and should be repeated before each release.
-
-## Workflow
-
-See the [interactive workflow diagram](NPI-Builder-Workflow.html).
 
 ## Security
 
